@@ -14,9 +14,9 @@ Early development focuses on controlled, disposable test servers and safe, repro
 
 ## Status
 
-MCPRift is in **Phase 0: repository foundation**. There is no working CLI or MCP connectivity yet.
+MCPRift is in **Phase 1: connectivity**. It can make one valid baseline interaction with a controlled MCP Streamable HTTP server.
 
-The current work is deliberately limited to creating a small Go project that can be understood and verified before protocol code is added.
+The current work is deliberately limited to establishing a safe, reproducible connection before capability inspection or security testing is added.
 
 ## Roadmap
 
@@ -30,16 +30,21 @@ The project will grow one reviewed phase at a time:
 
 See `PLAN.md` for the local working plan and phase exit conditions.
 
-## Planned Phase 0 commands
+## Available commands
 
-Once Phase 0 is implemented, these commands will be available:
+The following commands are available:
 
 ```sh
 go run ./cmd/mcprift version
 go run ./cmd/mcprift help
+go run ./cmd/mcprift connect http://127.0.0.1:8080/mcp
 ```
 
-Phase 0 will be accepted only after the project builds, unit tests pass, code is formatted with `gofmt`, and `go vet ./...` succeeds.
+`connect` uses the official MCP Go SDK to establish a baseline MCP session. The SDK owns the valid lifecycle exchange for the negotiated protocol version. It supports only loopback Streamable HTTP targets during Phase 1 and reports the negotiated protocol version and server identity. Diagnostics never print the target URL, request headers, or response body.
+
+For a reproducible local demonstration, run the [Phase 1 manual demo](docs/phase-1-manual-demo.md).
+
+The project is accepted only after it builds, unit tests pass, code is formatted with `gofmt`, and `go vet ./...` succeeds.
 
 ## First transport decision
 

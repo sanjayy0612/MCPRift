@@ -1,0 +1,7 @@
+# macOS Finder metadata
+.DS_Store
+
+# Local working plan; do not commit it until the project chooses to share it.
+PLAN.md
+docs
+AGENTS.md
