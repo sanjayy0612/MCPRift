@@ -3,5 +3,11 @@
 
 # Local working plan; do not commit it until the project chooses to share it.
 PLAN.md
-docs
+
+# Local Python environment and tool caches
+.venv/
+.ruff_cache/
+__pycache__/
+*.py[cod]
 AGENTS.md
+docs
