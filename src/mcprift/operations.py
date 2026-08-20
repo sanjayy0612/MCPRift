@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
 from mcp import Client
 
 from mcprift.actors import Actor
-from mcprift.client import controlled_client, validate_controlled_url
+from mcprift.client import (
+    controlled_client,
+    controlled_session,
+    validate_controlled_url,
+)
 
 
 class ActionKind(StrEnum):
@@ -23,6 +27,13 @@ class Outcome(StrEnum):
     SUCCEEDED = "succeeded"
     REJECTED = "rejected"
     UNAVAILABLE = "unavailable"
+
+
+class SessionPolicy(StrEnum):
+    """Whether an observation gets a fresh session or reuses established state."""
+
+    ISOLATED = "isolated"
+    REUSED = "reused"
 
 
 @dataclass(frozen=True)
@@ -58,14 +69,30 @@ class Observation:
     outcome: Outcome
     protocol_version: str
     item_count: int | None = None
+    session_policy: SessionPolicy = SessionPolicy.ISOLATED
+    establishing_actor_name: str | None = None
+    establishing_actor_kind: str | None = None
+    establishing_outcome: Outcome | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "actor": {"name": self.actor_name, "kind": self.actor_kind},
             "outcome": self.outcome.value,
             "protocol_version": self.protocol_version,
             "item_count": self.item_count,
+            "session": {"policy": self.session_policy.value},
         }
+        if self.establishing_actor_name is not None:
+            result["session"]["establishing_actor"] = {
+                "name": self.establishing_actor_name,
+                "kind": self.establishing_actor_kind,
+            }
+            result["session"]["establishing_outcome"] = (
+                self.establishing_outcome.value
+                if self.establishing_outcome is not None
+                else None
+            )
+        return result
 
 
 async def compare_identities(
@@ -94,6 +121,67 @@ async def compare_identities(
 async def _observe_over_http(raw_url: str, actor: Actor, action: Action) -> Observation:
     async with controlled_client(raw_url, actor) as client:
         return await observe_client(client, actor, action)
+
+
+async def observe_reused_session(
+    raw_url: str,
+    establishing_actor: Actor,
+    requesting_actor: Actor,
+    action: Action,
+    *,
+    timeout_seconds: float = 10,
+) -> Observation:
+    """Run one safe action before and after an actor change in one SDK session."""
+    validate_controlled_url(raw_url)
+    try:
+        return await asyncio.wait_for(
+            _observe_reused_session(
+                raw_url, establishing_actor, requesting_actor, action
+            ),
+            timeout_seconds,
+        )
+    except Exception:
+        return Observation(
+            requesting_actor.name,
+            requesting_actor.kind.value,
+            Outcome.UNAVAILABLE,
+            "unknown",
+            session_policy=SessionPolicy.REUSED,
+            establishing_actor_name=establishing_actor.name,
+            establishing_actor_kind=establishing_actor.kind.value,
+        )
+
+
+async def _observe_reused_session(
+    raw_url: str,
+    establishing_actor: Actor,
+    requesting_actor: Actor,
+    action: Action,
+) -> Observation:
+    async with controlled_session(
+        raw_url, establishing_actor, legacy_protocol=True
+    ) as session:
+        establishing = await observe_client(session.client, establishing_actor, action)
+        if establishing.outcome is not Outcome.SUCCEEDED:
+            return Observation(
+                requesting_actor.name,
+                requesting_actor.kind.value,
+                Outcome.UNAVAILABLE,
+                establishing.protocol_version,
+                session_policy=SessionPolicy.REUSED,
+                establishing_actor_name=establishing_actor.name,
+                establishing_actor_kind=establishing_actor.kind.value,
+                establishing_outcome=establishing.outcome,
+            )
+        session.bind_actor(requesting_actor)
+        requesting = await observe_client(session.client, requesting_actor, action)
+        return replace(
+            requesting,
+            session_policy=SessionPolicy.REUSED,
+            establishing_actor_name=establishing_actor.name,
+            establishing_actor_kind=establishing_actor.kind.value,
+            establishing_outcome=establishing.outcome,
+        )
 
 
 async def observe_client(client: Client, actor: Actor, action: Action) -> Observation:
