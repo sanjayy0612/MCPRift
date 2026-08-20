@@ -3,8 +3,15 @@ from __future__ import annotations
 import unittest
 
 from mcprift.actors import Actor, ActorKind
-from mcprift.operations import Action, ActionKind, Observation, Outcome
+from mcprift.operations import (
+    Action,
+    ActionKind,
+    Observation,
+    Outcome,
+    SessionPolicy,
+)
 from mcprift.security import (
+    SESSION_CASE_ID,
     ExpectedProperty,
     ResultStatus,
     SecurityCase,
@@ -42,7 +49,7 @@ class SecurityTests(unittest.TestCase):
             expired_token="expired",
         )
 
-        self.assertEqual(len(cases), 8)
+        self.assertEqual(len(cases), 9)
         self.assertEqual(
             {case.case_id for case in cases},
             {
@@ -54,8 +61,35 @@ class SecurityTests(unittest.TestCase):
                 "MCPRIFT-BOUNDARY-002",
                 "MCPRIFT-BOUNDARY-003",
                 "MCPRIFT-BOUNDARY-004",
+                SESSION_CASE_ID,
             },
         )
+
+    def test_session_case_declares_a_sanitized_reused_actor_transition(self) -> None:
+        case = built_in_cases(
+            alice_token="secret-alice",
+            bob_token="secret-bob",
+            invalid_token="secret-invalid",
+            expired_token="secret-expired",
+        )[-1]
+
+        serialized = str(case.to_dict())
+        self.assertEqual(case.session_policy, SessionPolicy.REUSED)
+        self.assertEqual(case.establishing_actor.name, "alice")
+        self.assertEqual(case.actor.name, "bob")
+        self.assertNotIn("secret-alice", serialized)
+        self.assertNotIn("secret-bob", serialized)
+
+    def test_reused_policy_requires_an_establishing_actor(self) -> None:
+        with self.assertRaises(ValueError):
+            SecurityCase(
+                "TEST-SESSION",
+                "invalid session case",
+                Actor("bob", ActorKind.AUTHENTICATED, "bob"),
+                Action(ActionKind.RESOURCE_READ, "lab://users/alice"),
+                ExpectedProperty.DENIED,
+                SessionPolicy.REUSED,
+            )
 
     def test_security_case_serialization_excludes_actor_token(self) -> None:
         case = built_in_cases(

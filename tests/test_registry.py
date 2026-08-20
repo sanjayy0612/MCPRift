@@ -14,6 +14,6 @@ class RegistryTests(unittest.TestCase):
             expired_token="expired",
         )
 
-        self.assertEqual(len(registry.all()), 8)
+        self.assertEqual(len(registry.all()), 9)
         with self.assertRaises(ValueError):
             registry.register(registry.all()[0])

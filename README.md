@@ -26,6 +26,8 @@ MCPRift currently provides:
   credential contexts for one explicitly acknowledged-safe action.
 - **Authorization checks** for allowed and denied tool calls and per-user
   resource access.
+- **Session/state checks** that change actors inside one reused SDK/HTTP session
+  and verify that the first actor's credentials do not authorize the second.
 - **Deterministic protocol mutations** for malformed JSON-RPC and unknown or
   incomplete requests.
 - **Sanitized evidence** written as private JSON records, with terminal, JSON,
@@ -84,7 +86,7 @@ export MCPRIFT_EXPIRED_TOKEN=mcprift-lab-expired
 uv run mcprift test http://127.0.0.1:8080/mcp
 ```
 
-The secure lab should produce eight passing checks. The command writes a
+The secure lab should produce nine passing checks. The command writes a
 private evidence file under `mcprift-evidence/` and returns:
 
 - `0` when all selected checks pass;
@@ -100,6 +102,7 @@ useful for testing MCPRift's detection and reporting behavior:
 uv run python -m mcprift.lab --vulnerable anonymous-tool
 uv run python -m mcprift.lab --vulnerable expired-credential
 uv run python -m mcprift.lab --vulnerable cross-user-resource
+uv run python -m mcprift.lab --vulnerable session-identity-crossover
 ```
 
 Available toggles:
@@ -109,6 +112,7 @@ Available toggles:
 | `anonymous-tool` | Anonymous callers can invoke `safe_echo`. |
 | `expired-credential` | The expired lab credential is accepted. |
 | `cross-user-resource` | A user can read another user's synthetic resource. |
+| `session-identity-crossover` | A reused session keeps Alice's established identity after its request credentials change to Bob. |
 
 The toggles may be repeated to combine failures. They affect only the
 disposable local lab.
@@ -151,6 +155,16 @@ uv run mcprift test http://127.0.0.1:8080/mcp \
   --case MCPRIFT-BOUNDARY-002
 ```
 
+Run only the bounded session/state invariant. MCPRift opens one controlled
+session as Alice, reads Alice's synthetic resource, changes that same session's
+request credentials to Bob, and verifies that Bob is denied. This command pins
+the SDK to its handshake-era `legacy` mode so the server supplies an MCP
+session ID:
+
+```sh
+uv run mcprift session-test http://127.0.0.1:8080/mcp
+```
+
 Send one deterministic raw JSON-RPC mutation. Valid kinds are
 `invalid-json`, `missing-jsonrpc`, `unknown-method`, and `empty-batch`:
 
@@ -168,13 +182,14 @@ uv run mcprift replay http://127.0.0.1:8080/mcp \
   --case MCPRIFT-AUTH-001
 ```
 
-Commands that execute the built-in suite or replay a case require all four lab
-credential variables: `MCPRIFT_AUTH_TOKEN`, `MCPRIFT_BOB_TOKEN`,
-`MCPRIFT_INVALID_TOKEN`, and `MCPRIFT_EXPIRED_TOKEN`.
+Commands that execute the built-in suite, the session test, or replay a case
+require all four lab credential variables: `MCPRIFT_AUTH_TOKEN`,
+`MCPRIFT_BOB_TOKEN`, `MCPRIFT_INVALID_TOKEN`, and
+`MCPRIFT_EXPIRED_TOKEN`.
 
 ## Built-in cases
 
-The default registry contains eight stable cases:
+The default registry contains nine stable cases:
 
 - `MCPRIFT-AUTH-001` — anonymous tool access is denied.
 - `MCPRIFT-AUTH-002` — an authenticated caller can use the safe tool.
@@ -184,6 +199,8 @@ The default registry contains eight stable cases:
 - `MCPRIFT-BOUNDARY-002` — Alice cannot read Bob's resource.
 - `MCPRIFT-BOUNDARY-003` — Bob can read Bob's resource.
 - `MCPRIFT-BOUNDARY-004` — Bob cannot read Alice's resource.
+- `MCPRIFT-SESSION-001` — Alice's credentials cannot authorize Bob's request
+  after the controlled SDK/HTTP session is reused and rebound to Bob.
 
 These cases exercise observable authorization outcomes. They do not establish
 full OAuth behavior or prove that an arbitrary production deployment is secure.
@@ -208,9 +225,14 @@ or test commands.
 
 MCPRift 0.2.0 does not implement full OAuth conformance, authorization-server
 discovery, PKCE, audience validation, token-passthrough detection, stdio
-targets, stateful session binding, broad network scanning, exploit automation,
-or arbitrary third-party plugins. The lab uses fixed synthetic bearer values
-to exercise authorization outcomes; it is not an OAuth authorization server.
+targets, broad network scanning, exploit automation, or arbitrary third-party
+plugins. Session testing is deliberately limited to one deterministic actor
+change in one reused, handshake-era Streamable HTTP session. Modern
+sessionless MCP endpoints are outside this invariant, as are cookies, multiple
+concurrent sessions, server restarts, and replayed protocol messages. The lab
+uses fixed synthetic bearer values and an identity cache keyed by MCP session
+ID to exercise authorization outcomes; it is not an OAuth authorization
+server.
 
 The project is experimental. Treat its results as bounded evidence for the
 tested target and configuration, not as a certification or a guarantee of
