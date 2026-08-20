@@ -20,7 +20,13 @@ from mcprift.operations import Action, ActionKind, Outcome, compare_identities
 from mcprift.registry import CaseRegistry, default_registry
 from mcprift.replay import replay_case
 from mcprift.reporting import json_report, sarif_report, terminal_report
-from mcprift.security import ResultStatus, SecurityCase, SecurityResult, run_cases
+from mcprift.security import (
+    SESSION_CASE_ID,
+    ResultStatus,
+    SecurityCase,
+    SecurityResult,
+    run_cases,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -72,6 +78,12 @@ def parser() -> argparse.ArgumentParser:
     test_parser.add_argument("url", metavar="CONTROLLED_STREAMABLE_HTTP_URL")
     test_parser.add_argument("--case", action="append", dest="case_ids", metavar="ID")
     _add_report_arguments(test_parser)
+    session_parser = subcommands.add_parser(
+        "session-test",
+        help="test actor binding while one controlled session is reused",
+    )
+    session_parser.add_argument("url", metavar="CONTROLLED_STREAMABLE_HTTP_URL")
+    _add_report_arguments(session_parser)
 
     mutation_parser = subcommands.add_parser(
         "mutate", help="send one deterministic raw JSON-RPC mutation"
@@ -203,10 +215,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             else 0
         )
 
-    if arguments.command == "test":
+    if arguments.command in {"test", "session-test"}:
         try:
             registry = _registry_from_environment()
-            cases = _selected_cases(registry, arguments.case_ids)
+            if arguments.command == "session-test":
+                cases = (registry.get(SESSION_CASE_ID),)
+            else:
+                cases = _selected_cases(registry, arguments.case_ids)
             results = asyncio.run(run_cases(arguments.url, cases))
             evidence = create_evidence(arguments.url, results=results)
             evidence_path = write_evidence(evidence, arguments.evidence_dir)
