@@ -12,8 +12,12 @@ from mcprift.operations import (
     ActionKind,
     Observation,
     Outcome,
+    SessionPolicy,
     compare_identities,
+    observe_reused_session,
 )
+
+SESSION_CASE_ID = "MCPRIFT-SESSION-001"
 
 
 class ExpectedProperty(StrEnum):
@@ -36,15 +40,28 @@ class SecurityCase:
     actor: Actor
     action: Action
     expected: ExpectedProperty
+    session_policy: SessionPolicy = SessionPolicy.ISOLATED
+    establishing_actor: Actor | None = None
+
+    def __post_init__(self) -> None:
+        if self.session_policy is SessionPolicy.REUSED:
+            if self.establishing_actor is None:
+                raise ValueError("reused session case requires an establishing actor")
+        elif self.establishing_actor is not None:
+            raise ValueError("isolated session case cannot have an establishing actor")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "id": self.case_id,
             "title": self.title,
             "actor": self.actor.to_dict(),
             "action": self.action.to_dict(),
             "expected": self.expected.value,
+            "session": {"policy": self.session_policy.value},
         }
+        if self.establishing_actor is not None:
+            result["session"]["establishing_actor"] = self.establishing_actor.to_dict()
+        return result
 
 
 @dataclass(frozen=True)
@@ -78,7 +95,15 @@ async def run_cases(
     """Run cases sequentially so fixture state changes remain reproducible."""
     results: list[SecurityResult] = []
     for case in cases:
-        observation = (await compare_identities(raw_url, case.action, (case.actor,)))[0]
+        if case.session_policy is SessionPolicy.REUSED:
+            assert case.establishing_actor is not None
+            observation = await observe_reused_session(
+                raw_url, case.establishing_actor, case.actor, case.action
+            )
+        else:
+            observation = (
+                await compare_identities(raw_url, case.action, (case.actor,))
+            )[0]
         results.append(evaluate(case, observation))
     return tuple(results)
 
@@ -155,5 +180,14 @@ def built_in_cases(
             bob,
             Action(ActionKind.RESOURCE_READ, "lab://users/alice"),
             ExpectedProperty.DENIED,
+        ),
+        SecurityCase(
+            SESSION_CASE_ID,
+            "alice's credentials cannot authorize bob after session reuse",
+            bob,
+            Action(ActionKind.RESOURCE_READ, "lab://users/alice"),
+            ExpectedProperty.DENIED,
+            SessionPolicy.REUSED,
+            alice,
         ),
     )
