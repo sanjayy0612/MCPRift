@@ -7,9 +7,15 @@ import sys
 import time
 import unittest
 
+from mcprift.actors import Actor, ActorKind
 from mcprift.capabilities import inspect_capabilities
+from mcprift.client import controlled_session
+from mcprift.evidence import create_evidence
 from mcprift.lab import ALICE_TOKEN, BOB_TOKEN, EXPIRED_TOKEN
 from mcprift.mutation import MutationKind, run_mutation
+from mcprift.operations import Action, ActionKind, Outcome, observe_client
+from mcprift.registry import default_registry
+from mcprift.replay import replay_case
 from mcprift.security import ResultStatus, built_in_cases, run_cases
 
 
@@ -20,22 +26,35 @@ class LabIntegrationTests(unittest.TestCase):
             results = asyncio.run(run_cases(url, self._cases()))
             inventory = asyncio.run(inspect_capabilities(url))
             mutation = asyncio.run(run_mutation(url, MutationKind.UNKNOWN_METHOD))
+            evidence = create_evidence(url, results=(results[-1],)).to_dict()
+            replayed = asyncio.run(
+                replay_case(
+                    url,
+                    evidence,
+                    results[-1].case.case_id,
+                    self._registry(),
+                )
+            )
         finally:
             fixture.terminate()
             fixture.wait(timeout=5)
 
         self.assertTrue(all(result.status is ResultStatus.PASS for result in results))
         self.assertEqual(len(inventory.capabilities), 4)
-        # JSON-RPC errors may correctly use HTTP 200; the protocol verdict is in
-        # the body, which MCPRift records only as size and digest.
-        self.assertEqual(mutation.http_status, 200)
+        # The stateful lab rejects a raw request without an established session;
+        # MCPRift retains only the status, size, and digest of that response.
+        self.assertEqual(mutation.http_status, 400)
         self.assertGreater(mutation.response_bytes, 0)
+        self.assertEqual(results[-1].observation.establishing_actor_name, "alice")
+        self.assertEqual(results[-1].observation.actor_name, "bob")
+        self.assertEqual(replayed.status, ResultStatus.PASS)
 
     def test_vulnerability_toggles_create_reproducible_failures(self) -> None:
         selected = (
             ("anonymous-tool", 0),
             ("expired-credential", 3),
             ("cross-user-resource", 5),
+            ("session-identity-crossover", 8),
         )
         for vulnerability, case_index in selected:
             with self.subTest(vulnerability=vulnerability):
@@ -44,10 +63,17 @@ class LabIntegrationTests(unittest.TestCase):
                     result = asyncio.run(run_cases(url, (self._cases()[case_index],)))[
                         0
                     ]
+                    fresh_bob_outcome = (
+                        self._fresh_bob_session_outcome(url)
+                        if vulnerability == "session-identity-crossover"
+                        else None
+                    )
                 finally:
                     fixture.terminate()
                     fixture.wait(timeout=5)
                 self.assertEqual(result.status, ResultStatus.FAIL)
+                if vulnerability == "session-identity-crossover":
+                    self.assertEqual(fresh_bob_outcome, Outcome.REJECTED)
 
     def _cases(self) -> tuple:
         return built_in_cases(
@@ -56,6 +82,24 @@ class LabIntegrationTests(unittest.TestCase):
             invalid_token="mcprift-lab-invalid",
             expired_token=EXPIRED_TOKEN,
         )
+
+    def _registry(self):
+        return default_registry(
+            alice_token=ALICE_TOKEN,
+            bob_token=BOB_TOKEN,
+            invalid_token="mcprift-lab-invalid",
+            expired_token=EXPIRED_TOKEN,
+        )
+
+    def _fresh_bob_session_outcome(self, url: str) -> Outcome:
+        async def observe() -> Outcome:
+            bob = Actor("bob", ActorKind.AUTHENTICATED, BOB_TOKEN)
+            action = Action(ActionKind.RESOURCE_READ, "lab://users/alice")
+            async with controlled_session(url, bob, legacy_protocol=True) as session:
+                observation = await observe_client(session.client, bob, action)
+            return observation.outcome
+
+        return asyncio.run(observe())
 
     def _start_lab(
         self, vulnerability: str | None = None
