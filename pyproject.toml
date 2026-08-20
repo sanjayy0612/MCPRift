@@ -4,11 +4,11 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcprift"
-version = "0.1.0"
-description = "A deliberately bounded MCP connectivity baseline for authorized testing."
+version = "0.2.0"
+description = "A bounded MCP security-testing framework for controlled targets."
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["mcp==2.0.0"]
+dependencies = ["httpx2>=2.5,<3", "mcp==2.0.0"]
 
 [dependency-groups]
 dev = ["ruff==0.13.3"]

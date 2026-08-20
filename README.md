@@ -1,58 +1,99 @@
 # MCPRift
 
-MCPRift is an authorized security-testing framework for checking whether an MCP (Model Context Protocol) server's security boundary holds when a client behaves adversarially.
+MCPRift is an experimental framework for checking whether an MCP (Model
+Context Protocol) server's security boundary holds when a client behaves
+adversarially. It is for authorized testing against controlled targets.
 
-It is not an MCP inventory scanner. Its central question is:
+Version 0.2.0 implements the planned framework slices from connection through
+capability discovery, identity comparison, authorization invariants, raw
+protocol mutation, sanitized evidence, replay, reporting, a bounded case
+registry, and a disposable vulnerable lab. It is not a broad scanner or a
+stable release; see [MATURITY.md](MATURITY.md) for the release assessment.
 
-> Does the security boundary actually hold when an MCP client behaves adversarially?
+## Safety boundary
 
-## Safety
+- Only credential-free `http` or `https` URLs on a loopback host are accepted.
+- Redirects are disabled, so a loopback server cannot redirect traffic or
+  credentials to another host.
+- Tool calls require an explicit known-safe assertion. The built-in suite calls
+  only the lab's side-effect-free `safe_echo` tool.
+- Bearer tokens are read from environment variables, never URL or CLI token
+  arguments.
+- Evidence excludes target URLs, token values, server response bodies, and
+  action argument values.
+- Raw mutations are deterministic, response-size bounded, and isolated from
+  normal SDK-managed requests.
 
-Use MCPRift only on systems you are authorized to test.
+Use MCPRift only on systems you are authorized to assess.
 
-Early development focuses on controlled, disposable test servers and safe, reproducible checks. MCPRift will not automatically invoke arbitrary tools, perform destructive actions, or attempt exploitation.
-
-## Status
-
-MCPRift implements **Phase 0 and Phase 1** in Python. It can make one valid
-baseline interaction with a controlled MCP Streamable HTTP server.
-
-The current work is deliberately limited to establishing a safe, reproducible connection before capability inspection or security testing is added.
-
-## Roadmap
-
-The project will grow one reviewed phase at a time:
-
-1. Connect to a controlled MCP server using a valid baseline interaction.
-2. Inspect available capabilities such as tools, resources, and prompts.
-3. Run the same safe operations under different identity contexts.
-4. Test explicit security rules, starting with anonymous tool access.
-5. Add reproducible evidence, replay, reporting, and later extensibility.
-
-See `PLAN.md` for the local working plan and phase exit conditions.
-
-## Available commands
-
-The following commands are available:
+## Commands
 
 ```sh
 uv run mcprift version
 uv run mcprift help
 uv run mcprift connect http://127.0.0.1:8080/mcp
+uv run mcprift inspect http://127.0.0.1:8080/mcp
+uv run mcprift compare http://127.0.0.1:8080/mcp \
+  --safe-tool safe_echo --arguments '{"message":"probe"}'
+uv run mcprift test http://127.0.0.1:8080/mcp
+uv run mcprift mutate http://127.0.0.1:8080/mcp unknown-method
+uv run mcprift report mcprift-evidence/RECORD.json --format sarif
+uv run mcprift replay http://127.0.0.1:8080/mcp \
+  mcprift-evidence/RECORD.json --case MCPRIFT-AUTH-001
 ```
 
-`connect` uses the official MCP Python SDK to establish a baseline MCP session.
-The SDK owns the valid lifecycle exchange for the negotiated protocol version.
-It supports only credential-free loopback Streamable HTTP targets during Phase 1
-and reports the negotiated protocol version and server identity. Diagnostics
-never print the target URL, request headers, or response body.
+`inspect` lists tools, resources, resource templates, and prompts but does not
+invoke them. Listings are capped at 100 pages and 1,000 capabilities.
 
-For a reproducible local demonstration, run the [Phase 1 manual demo](docs/phase-1-manual-demo.md).
+`test` runs eight controlled checks: anonymous, valid, invalid, and expired
+tool access plus both directions of an Alice/Bob resource boundary. It writes
+a private JSON evidence record and returns 0 for a clean run, 1 for a security
+failure, or 2 for an execution error. Terminal, JSON, and SARIF output are
+supported.
+
+## Disposable lab
+
+Start the secure lab:
+
+```sh
+uv run python -m mcprift.lab
+```
+
+In another terminal, set the lab-only credentials and run the suite:
+
+```sh
+export MCPRIFT_AUTH_TOKEN=mcprift-lab-alice
+export MCPRIFT_BOB_TOKEN=mcprift-lab-bob
+export MCPRIFT_INVALID_TOKEN=mcprift-lab-invalid
+export MCPRIFT_EXPIRED_TOKEN=mcprift-lab-expired
+uv run mcprift test http://127.0.0.1:8080/mcp
+```
+
+The lab can opt into reproducible failures, one or more at a time:
+
+```sh
+uv run python -m mcprift.lab --vulnerable anonymous-tool
+uv run python -m mcprift.lab --vulnerable expired-credential
+uv run python -m mcprift.lab --vulnerable cross-user-resource
+```
+
+The older tool-free Phase 1 fixture remains available with
+`uv run python -m mcprift.fixture`.
+
+## What is intentionally not claimed
+
+MCPRift 0.2.0 does not implement full OAuth conformance, audience validation,
+authorization-server discovery, PKCE, token-passthrough detection, stdio
+targets, stateful session binding, broad network scanning, exploit automation,
+or arbitrary third-party plugins. The lab uses fixed synthetic bearer values
+to exercise authorization outcomes; it is not an OAuth authorization server.
+
+The current primary-source coverage and gaps are recorded in
+[RESEARCH-MAPPING.md](RESEARCH-MAPPING.md).
 
 ## Development
 
-This is a Python 3.12+ project. Install the project environment and run the
-checks with:
+This is a Python 3.12+ project using the official MCP Python SDK 2.0.0.
 
 ```sh
 uv sync
@@ -61,26 +102,5 @@ uv run ruff check .
 uv run python -m unittest discover -s tests -v
 ```
 
-For the manual demo, start the disposable fixture in one terminal and connect
-from another:
-
-```sh
-uv run python -m mcprift.fixture
-uv run mcprift connect http://127.0.0.1:8080/mcp
-```
-
 The previous Go implementation is retained unchanged in `legacy-go/`; it is
 not part of the Python build or test commands.
-
-## First transport decision
-
-Phase 1 will support only a controlled MCP Streamable HTTP URL. Stdio support will come later as a separate, explicit transport because it launches a local server process and has different safety and lifecycle requirements.
-
-## Development approach
-
-- Start small; do not implement a later phase early.
-- Prefer standard-library code and focused changes. `argparse` provides the
-  small command-line parser needed here; a CLI framework would add no value.
-- Separate normal MCP requests from deliberately malformed protocol requests.
-- Store sanitized evidence for any future failed security test.
-- Record the MCP protocol version and transport used by each interaction.

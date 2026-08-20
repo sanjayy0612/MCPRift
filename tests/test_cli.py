@@ -17,7 +17,7 @@ class CliTests(unittest.TestCase):
     def test_version(self) -> None:
         result = self.run_cli("version")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "mcprift 0.1.0\n")
+        self.assertEqual(result.stdout, "mcprift 0.2.0\n")
         self.assertEqual(result.stderr, "")
 
     def test_help(self) -> None:
@@ -25,6 +25,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("usage: mcprift", result.stdout)
         self.assertIn("connect", result.stdout)
+        self.assertIn("inspect", result.stdout)
+        self.assertIn("compare", result.stdout)
+
+    def test_compare_requires_tokens_via_environment(self) -> None:
+        result = self.run_cli(
+            "compare",
+            "http://127.0.0.1:8080/mcp",
+            "--safe-tool",
+            "safe_echo",
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("environment variable", result.stderr)
 
     def test_connect_error_hides_credential_bearing_url(self) -> None:
         result = self.run_cli("connect", "http://user:secret@127.0.0.1:8080/mcp")

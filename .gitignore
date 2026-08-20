@@ -9,5 +9,10 @@ PLAN.md
 .ruff_cache/
 __pycache__/
 *.py[cod]
+
+# Generated security evidence
+mcprift-evidence/
 AGENTS.md
 docs
+MATURITY.md
+RESEARCH-MAPPING.md

@@ -317,9 +317,10 @@ wheels = [
 
 [[package]]
 name = "mcprift"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx2" },
     { name = "mcp" },
 ]
 
@@ -329,7 +330,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", specifier = "==2.0.0" }]
+requires-dist = [
+    { name = "httpx2", specifier = ">=2.5,<3" },
+    { name = "mcp", specifier = "==2.0.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [{ name = "ruff", specifier = "==0.13.3" }]

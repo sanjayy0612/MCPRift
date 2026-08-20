@@ -1,3 +1,3 @@
-"""MCPRift Phase 0 and Phase 1 implementation."""
+"""MCPRift's controlled MCP security test framework."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

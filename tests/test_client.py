@@ -51,10 +51,55 @@ class ClientTests(unittest.TestCase):
                 asyncio.run(connect(target))
         finally:
             server.shutdown()
+            server.server_close()
             thread.join(timeout=5)
 
         self.assertNotIn(target, str(raised.exception))
         self.assertNotIn("secret-value", str(raised.exception))
+
+    def test_does_not_follow_target_redirects(self) -> None:
+        redirected_requests = 0
+
+        class RedirectedHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                nonlocal redirected_requests
+                redirected_requests += 1
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        redirected = http.server.ThreadingHTTPServer(
+            ("127.0.0.1", 0), RedirectedHandler
+        )
+        redirected_thread = threading.Thread(target=redirected.serve_forever)
+        redirected_thread.start()
+
+        location = f"http://127.0.0.1:{redirected.server_port}/mcp"
+
+        class RedirectHandler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                self.send_response(307)
+                self.send_header("Location", location)
+                self.end_headers()
+
+            def log_message(self, format: str, *args: object) -> None:
+                pass
+
+        redirector = http.server.ThreadingHTTPServer(("127.0.0.1", 0), RedirectHandler)
+        redirector_thread = threading.Thread(target=redirector.serve_forever)
+        redirector_thread.start()
+        try:
+            with self.assertRaises(ConnectionFailure):
+                asyncio.run(connect(f"http://127.0.0.1:{redirector.server_port}/mcp"))
+        finally:
+            redirector.shutdown()
+            redirector.server_close()
+            redirector_thread.join(timeout=5)
+            redirected.shutdown()
+            redirected.server_close()
+            redirected_thread.join(timeout=5)
+
+        self.assertEqual(redirected_requests, 0)
 
     def test_connects_to_the_sdk_fixture(self) -> None:
         with socket.socket() as listener:
