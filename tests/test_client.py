@@ -9,10 +9,29 @@ import threading
 import time
 import unittest
 
-from mcprift.client import ConnectionFailure, connect, validate_controlled_url
+import httpx2
+
+from mcprift.actors import Actor, ActorKind
+from mcprift.client import (
+    ConnectionFailure,
+    ControlledSession,
+    connect,
+    validate_controlled_url,
+)
 
 
 class ClientTests(unittest.TestCase):
+    def test_session_rebind_removes_previous_authorization_header(self) -> None:
+        async def rebind() -> None:
+            async with httpx2.AsyncClient(
+                headers={"Authorization": "Bearer secret-value"}
+            ) as http_client:
+                session = ControlledSession(object(), http_client)  # type: ignore[arg-type]
+                session.bind_actor(Actor("anonymous", ActorKind.ANONYMOUS))
+                self.assertNotIn("Authorization", http_client.headers)
+
+        asyncio.run(rebind())
+
     def test_rejects_non_loopback_and_credential_bearing_urls(self) -> None:
         for url in (
             "https://controlled.example/mcp",
