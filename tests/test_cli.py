@@ -27,6 +27,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("connect", result.stdout)
         self.assertIn("inspect", result.stdout)
         self.assertIn("compare", result.stdout)
+        self.assertIn("session-test", result.stdout)
 
     def test_compare_requires_tokens_via_environment(self) -> None:
         result = self.run_cli(
