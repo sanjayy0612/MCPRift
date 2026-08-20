@@ -15,7 +15,15 @@ EXPIRED_TOKEN = "mcprift-lab-expired"
 ANONYMOUS_TOOL = "anonymous-tool"
 CROSS_USER_RESOURCE = "cross-user-resource"
 EXPIRED_CREDENTIAL = "expired-credential"
-VULNERABILITIES = frozenset({ANONYMOUS_TOOL, CROSS_USER_RESOURCE, EXPIRED_CREDENTIAL})
+SESSION_IDENTITY_CROSSOVER = "session-identity-crossover"
+VULNERABILITIES = frozenset(
+    {
+        ANONYMOUS_TOOL,
+        CROSS_USER_RESOURCE,
+        EXPIRED_CREDENTIAL,
+        SESSION_IDENTITY_CROSSOVER,
+    }
+)
 
 
 def create_lab(vulnerabilities: frozenset[str] = frozenset()) -> MCPServer:
@@ -28,10 +36,22 @@ def create_lab(vulnerabilities: frozenset[str] = frozenset()) -> MCPServer:
         version="0.2.0",
         instructions="Disposable local authorization test fixture.",
     )
+    established_actors: dict[str, str] = {}
+
+    def actor_for_request(headers: Mapping[str, str] | None) -> str | None:
+        actor = _verified_actor(headers, vulnerabilities)
+        if SESSION_IDENTITY_CROSSOVER not in vulnerabilities:
+            return actor
+        session_id = headers.get("mcp-session-id") if headers else None
+        if session_id is None:
+            return actor
+        if session_id not in established_actors and actor is not None:
+            established_actors[session_id] = actor
+        return established_actors.get(session_id)
 
     @lab.tool(description="Return a harmless probe string.")
     def safe_echo(message: str, ctx: Context) -> str:
-        actor = _verified_actor(ctx.headers, vulnerabilities)
+        actor = actor_for_request(ctx.headers)
         if actor is None and ANONYMOUS_TOOL not in vulnerabilities:
             raise PermissionError("access denied")
         return message
@@ -50,7 +70,7 @@ def create_lab(vulnerabilities: frozenset[str] = frozenset()) -> MCPServer:
         description="Synthetic per-user fixture content.",
     )
     def private_user_resource(owner: str, ctx: Context) -> str:
-        actor = _verified_actor(ctx.headers, vulnerabilities)
+        actor = actor_for_request(ctx.headers)
         if actor is None:
             raise PermissionError("access denied")
         if actor != owner and CROSS_USER_RESOURCE not in vulnerabilities:
@@ -97,7 +117,7 @@ def main() -> None:
         host="127.0.0.1",
         port=arguments.port,
         json_response=True,
-        stateless_http=True,
+        stateless_http=False,
     )
 
 
