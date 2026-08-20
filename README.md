@@ -1,75 +1,100 @@
 # MCPRift
 
-MCPRift is an experimental framework for checking whether an MCP (Model
-Context Protocol) server's security boundary holds when a client behaves
-adversarially. It is for authorized testing against controlled targets.
+<p align="center">
+  <img src="assets/mcprift-logo.png" alt="MCPRift logo" width="180">
+</p>
 
-Version 0.2.0 implements the planned framework slices from connection through
-capability discovery, identity comparison, authorization invariants, raw
-protocol mutation, sanitized evidence, replay, reporting, a bounded case
-registry, and a disposable vulnerable lab. It is not a broad scanner or a
-stable release; see [MATURITY.md](MATURITY.md) for the release assessment.
+> Find the seam before someone crosses it.
+
+MCPRift is an experimental, bounded security-testing framework for [Model
+Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. It checks
+whether a controlled server's authorization boundary behaves as expected when
+the client presents different identities or sends unusual protocol requests.
+
+It is designed for authorized testing of local or otherwise controlled targets.
+It is not a network scanner, exploit framework, OAuth conformance suite, or
+general-purpose MCP client.
+
+## What it does
+
+MCPRift currently provides:
+
+- **Baseline connection** using the official MCP Python SDK over Streamable HTTP.
+- **Capability inspection** for tools, resources, resource templates, and
+  prompts without invoking them.
+- **Identity comparison** across anonymous, authenticated, invalid, and expired
+  credential contexts for one explicitly acknowledged-safe action.
+- **Authorization checks** for allowed and denied tool calls and per-user
+  resource access.
+- **Deterministic protocol mutations** for malformed JSON-RPC and unknown or
+  incomplete requests.
+- **Sanitized evidence** written as private JSON records, with terminal, JSON,
+  and SARIF reporting.
+- **Replay** of a recorded built-in case against a controlled target.
+- **A disposable local lab** with opt-in vulnerability toggles for reproducible
+  tests.
 
 ## Safety boundary
 
-- Only credential-free `http` or `https` URLs on a loopback host are accepted.
-- Redirects are disabled, so a loopback server cannot redirect traffic or
-  credentials to another host.
-- Tool calls require an explicit known-safe assertion. The built-in suite calls
-  only the lab's side-effect-free `safe_echo` tool.
+Safety constraints are part of the implementation, not just usage advice:
+
+- Targets must be absolute, credential-free `http` or `https` URLs on a
+  loopback host such as `127.0.0.1` or `localhost`.
+- Redirects are disabled for SDK-managed requests and raw mutations.
+- Tool calls require an explicit `known_safe=True` assertion in code. The
+  built-in suite invokes only the lab's side-effect-free `safe_echo` tool.
 - Bearer tokens are read from environment variables, never URL or CLI token
   arguments.
-- Evidence excludes target URLs, token values, server response bodies, and
-  action argument values.
-- Raw mutations are deterministic, response-size bounded, and isolated from
-  normal SDK-managed requests.
+- Evidence stores a target fingerprint rather than the target URL.
+- Evidence excludes token values, server response bodies, and action argument
+  values. Raw mutation evidence retains only status, content type, response
+  size, and a response hash.
+- Response and evidence sizes are bounded.
 
-Use MCPRift only on systems you are authorized to assess.
+Use MCPRift only against systems and data you are authorized to assess.
 
-## Commands
+## Requirements
 
-```sh
-uv run mcprift version
-uv run mcprift help
-uv run mcprift connect http://127.0.0.1:8080/mcp
-uv run mcprift inspect http://127.0.0.1:8080/mcp
-uv run mcprift compare http://127.0.0.1:8080/mcp \
-  --safe-tool safe_echo --arguments '{"message":"probe"}'
-uv run mcprift test http://127.0.0.1:8080/mcp
-uv run mcprift mutate http://127.0.0.1:8080/mcp unknown-method
-uv run mcprift report mcprift-evidence/RECORD.json --format sarif
-uv run mcprift replay http://127.0.0.1:8080/mcp \
-  mcprift-evidence/RECORD.json --case MCPRIFT-AUTH-001
-```
+- Python 3.12+
+- [`uv`](https://docs.astral.sh/uv/)
+- An MCP server reachable through controlled Streamable HTTP
 
-`inspect` lists tools, resources, resource templates, and prompts but does not
-invoke them. Listings are capped at 100 pages and 1,000 capabilities.
+The project currently depends on `mcp==2.0.0` and `httpx2`.
 
-`test` runs eight controlled checks: anonymous, valid, invalid, and expired
-tool access plus both directions of an Alice/Bob resource boundary. It writes
-a private JSON evidence record and returns 0 for a clean run, 1 for a security
-failure, or 2 for an execution error. Terminal, JSON, and SARIF output are
-supported.
+## Quick start: disposable lab
 
-## Disposable lab
+The fastest way to try MCPRift is with its local lab. The lab binds to
+`127.0.0.1:8080` by default and serves synthetic, side-effect-free data.
 
-Start the secure lab:
+In terminal one:
 
 ```sh
+uv sync
 uv run python -m mcprift.lab
 ```
 
-In another terminal, set the lab-only credentials and run the suite:
+In terminal two:
 
 ```sh
 export MCPRIFT_AUTH_TOKEN=mcprift-lab-alice
 export MCPRIFT_BOB_TOKEN=mcprift-lab-bob
 export MCPRIFT_INVALID_TOKEN=mcprift-lab-invalid
 export MCPRIFT_EXPIRED_TOKEN=mcprift-lab-expired
+
 uv run mcprift test http://127.0.0.1:8080/mcp
 ```
 
-The lab can opt into reproducible failures, one or more at a time:
+The secure lab should produce eight passing checks. The command writes a
+private evidence file under `mcprift-evidence/` and returns:
+
+- `0` when all selected checks pass;
+- `1` when a security check fails;
+- `2` when execution or configuration fails.
+
+## Reproduce controlled failures
+
+The lab can intentionally enable one or more known vulnerabilities. This is
+useful for testing MCPRift's detection and reporting behavior:
 
 ```sh
 uv run python -m mcprift.lab --vulnerable anonymous-tool
@@ -77,23 +102,96 @@ uv run python -m mcprift.lab --vulnerable expired-credential
 uv run python -m mcprift.lab --vulnerable cross-user-resource
 ```
 
-The older tool-free Phase 1 fixture remains available with
-`uv run python -m mcprift.fixture`.
+Available toggles:
 
-## What is intentionally not claimed
+| Toggle | Simulated failure |
+| --- | --- |
+| `anonymous-tool` | Anonymous callers can invoke `safe_echo`. |
+| `expired-credential` | The expired lab credential is accepted. |
+| `cross-user-resource` | A user can read another user's synthetic resource. |
 
-MCPRift 0.2.0 does not implement full OAuth conformance, audience validation,
-authorization-server discovery, PKCE, token-passthrough detection, stdio
-targets, stateful session binding, broad network scanning, exploit automation,
-or arbitrary third-party plugins. The lab uses fixed synthetic bearer values
-to exercise authorization outcomes; it is not an OAuth authorization server.
+The toggles may be repeated to combine failures. They affect only the
+disposable local lab.
 
-The current primary-source coverage and gaps are recorded in
-[RESEARCH-MAPPING.md](RESEARCH-MAPPING.md).
+## CLI
+
+Show the available commands:
+
+```sh
+uv run mcprift help
+uv run mcprift version
+```
+
+Connect and inspect a controlled server:
+
+```sh
+uv run mcprift connect http://127.0.0.1:8080/mcp
+uv run mcprift inspect http://127.0.0.1:8080/mcp
+uv run mcprift inspect http://127.0.0.1:8080/mcp --json
+```
+
+`inspect` lists capabilities but does not invoke tools, read resources, or run
+prompts.
+
+Compare one explicitly safe tool across identity contexts. The three token
+variables below are required; their values never appear in output or evidence:
+
+```sh
+uv run mcprift compare http://127.0.0.1:8080/mcp \
+  --safe-tool safe_echo \
+  --arguments '{"message":"probe"}'
+```
+
+Run the complete bounded authorization suite, or select individual cases:
+
+```sh
+uv run mcprift test http://127.0.0.1:8080/mcp
+uv run mcprift test http://127.0.0.1:8080/mcp \
+  --case MCPRIFT-AUTH-001 \
+  --case MCPRIFT-BOUNDARY-002
+```
+
+Send one deterministic raw JSON-RPC mutation. Valid kinds are
+`invalid-json`, `missing-jsonrpc`, `unknown-method`, and `empty-batch`:
+
+```sh
+uv run mcprift mutate http://127.0.0.1:8080/mcp unknown-method
+```
+
+Render an existing evidence record in terminal, JSON, or SARIF format, or
+replay one canonical case:
+
+```sh
+uv run mcprift report mcprift-evidence/mcprift-<run-id>.json --format sarif
+uv run mcprift replay http://127.0.0.1:8080/mcp \
+  mcprift-evidence/mcprift-<run-id>.json \
+  --case MCPRIFT-AUTH-001
+```
+
+Commands that execute the built-in suite or replay a case require all four lab
+credential variables: `MCPRIFT_AUTH_TOKEN`, `MCPRIFT_BOB_TOKEN`,
+`MCPRIFT_INVALID_TOKEN`, and `MCPRIFT_EXPIRED_TOKEN`.
+
+## Built-in cases
+
+The default registry contains eight stable cases:
+
+- `MCPRIFT-AUTH-001` — anonymous tool access is denied.
+- `MCPRIFT-AUTH-002` — an authenticated caller can use the safe tool.
+- `MCPRIFT-AUTH-003` — invalid credentials are denied.
+- `MCPRIFT-AUTH-004` — expired credentials are denied.
+- `MCPRIFT-BOUNDARY-001` — Alice can read Alice's resource.
+- `MCPRIFT-BOUNDARY-002` — Alice cannot read Bob's resource.
+- `MCPRIFT-BOUNDARY-003` — Bob can read Bob's resource.
+- `MCPRIFT-BOUNDARY-004` — Bob cannot read Alice's resource.
+
+These cases exercise observable authorization outcomes. They do not establish
+full OAuth behavior or prove that an arbitrary production deployment is secure.
 
 ## Development
 
-This is a Python 3.12+ project using the official MCP Python SDK 2.0.0.
+Install the locked development environment and run formatting, linting, and
+tests:
 
 ```sh
 uv sync
@@ -102,5 +200,22 @@ uv run ruff check .
 uv run python -m unittest discover -s tests -v
 ```
 
-The previous Go implementation is retained unchanged in `legacy-go/`; it is
-not part of the Python build or test commands.
+The Python implementation lives in `src/mcprift/`. The previous Go
+implementation is retained in `legacy-go/` and is not part of the Python build
+or test commands.
+
+## Current scope and limitations
+
+MCPRift 0.2.0 does not implement full OAuth conformance, authorization-server
+discovery, PKCE, audience validation, token-passthrough detection, stdio
+targets, stateful session binding, broad network scanning, exploit automation,
+or arbitrary third-party plugins. The lab uses fixed synthetic bearer values
+to exercise authorization outcomes; it is not an OAuth authorization server.
+
+The project is experimental. Treat its results as bounded evidence for the
+tested target and configuration, not as a certification or a guarantee of
+security.
+
+## License
+
+No license file is currently included in the repository.
