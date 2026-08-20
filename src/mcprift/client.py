@@ -7,7 +7,7 @@ import ipaddress
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
@@ -47,6 +47,19 @@ class ConnectionResult:
     server_name: str
     server_version: str
     transport: str = TRANSPORT
+
+
+@dataclass
+class ControlledSession:
+    """One initialized SDK session whose actor binding can change explicitly."""
+
+    client: Client
+    _http_client: httpx2.AsyncClient = field(repr=False)
+
+    def bind_actor(self, actor: Actor) -> None:
+        """Replace, rather than merge, the credential bound to future requests."""
+        self._http_client.headers.pop("Authorization", None)
+        self._http_client.headers.update(actor.headers)
 
 
 def validate_controlled_url(raw_url: str) -> str:
@@ -109,11 +122,24 @@ async def controlled_client(
     raw_url: str, actor: Actor | None = None
 ) -> AsyncIterator[Client]:
     """Open an SDK client with optional in-memory actor credentials."""
+    async with controlled_session(raw_url, actor) as session:
+        yield session.client
+
+
+@asynccontextmanager
+async def controlled_session(
+    raw_url: str,
+    actor: Actor | None = None,
+    *,
+    legacy_protocol: bool = False,
+) -> AsyncIterator[ControlledSession]:
+    """Open an SDK session and expose only an explicit actor rebind operation."""
     url = validate_controlled_url(raw_url)
     headers = actor.headers if actor is not None else {}
     async with httpx2.AsyncClient(
         headers=headers, follow_redirects=False
     ) as http_client:
         transport = streamable_http_client(url, http_client=http_client)
-        async with Client(transport, client_info=None) as client:
-            yield client
+        mode = "legacy" if legacy_protocol else "auto"
+        async with Client(transport, client_info=None, mode=mode) as client:
+            yield ControlledSession(client, http_client)
