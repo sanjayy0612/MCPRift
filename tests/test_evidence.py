@@ -6,6 +6,7 @@ import unittest
 
 from mcprift.actors import Actor, ActorKind
 from mcprift.evidence import create_evidence, read_evidence, write_evidence
+from mcprift.oauth_checks import OAuthCheckResult
 from mcprift.operations import (
     Action,
     ActionKind,
@@ -106,4 +107,23 @@ class EvidenceTests(unittest.TestCase):
                 "rules"
             ][0]["id"],
             "MCPRIFT-SESSION-001",
+        )
+
+    def test_oauth_evidence_and_reports_store_only_sanitized_verdicts(self) -> None:
+        check = OAuthCheckResult(
+            "MCPRIFT-OAUTH-TEST",
+            "audience is rejected",
+            False,
+            "HTTP 200",
+            "HTTP 401",
+        )
+        evidence = create_evidence("http://127.0.0.1:8090/mcp", oauth_checks=(check,))
+        serialized = json.dumps(evidence.to_dict())
+
+        self.assertNotIn("127.0.0.1", serialized)
+        self.assertIn("MCPRIFT-OAUTH-TEST: FAIL", terminal_report(evidence.to_dict()))
+        sarif = json.loads(sarif_report(evidence.to_dict()))
+        self.assertEqual(
+            sarif["runs"][0]["results"][0]["ruleId"],
+            "MCPRIFT-OAUTH-TEST",
         )
