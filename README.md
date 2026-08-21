@@ -12,8 +12,8 @@ whether a controlled server's authorization boundary behaves as expected when
 the client presents different identities or sends unusual protocol requests.
 
 It is designed for authorized testing of local or otherwise controlled targets.
-It is not a network scanner, exploit framework, OAuth conformance suite, or
-general-purpose MCP client.
+It is not a network scanner, exploit framework, complete OAuth certification
+suite, or general-purpose MCP client.
 
 ## What it does
 
@@ -28,6 +28,9 @@ MCPRift currently provides:
   resource access.
 - **Session/state checks** that change actors inside one reused SDK/HTTP session
   and verify that the first actor's credentials do not authorize the second.
+- **OAuth boundary checks** for discovery metadata, exact 401/403 challenges,
+  expiry, scopes, token audience, S256 PKCE, resource indicators, and token
+  passthrough to a synthetic downstream API.
 - **Deterministic protocol mutations** for malformed JSON-RPC and unknown or
   incomplete requests.
 - **Sanitized evidence** written as private JSON records, with terminal, JSON,
@@ -93,6 +96,26 @@ private evidence file under `mcprift-evidence/` and returns:
 - `1` when a security check fails;
 - `2` when execution or configuration fails.
 
+## OAuth and PKCE lab
+
+The separate OAuth lab is a protected MCP resource and a minimal local
+authorization server. Start it in terminal one:
+
+```sh
+uv run python -m mcprift.oauth_lab
+```
+
+Run its twelve checks in terminal two:
+
+```sh
+uv run mcprift oauth-test http://127.0.0.1:8090/mcp
+```
+
+This verifies protected-resource and authorization-server discovery, Bearer
+challenges, expiry, insufficient scope, audience rejection, resource
+indicators, S256 PKCE failure and success, and use of a separate credential for
+the synthetic downstream API.
+
 ## Reproduce controlled failures
 
 The lab can intentionally enable one or more known vulnerabilities. This is
@@ -103,6 +126,8 @@ uv run python -m mcprift.lab --vulnerable anonymous-tool
 uv run python -m mcprift.lab --vulnerable expired-credential
 uv run python -m mcprift.lab --vulnerable cross-user-resource
 uv run python -m mcprift.lab --vulnerable session-identity-crossover
+uv run python -m mcprift.oauth_lab --vulnerable wrong-audience
+uv run python -m mcprift.oauth_lab --vulnerable token-passthrough
 ```
 
 Available toggles:
@@ -113,6 +138,13 @@ Available toggles:
 | `expired-credential` | The expired lab credential is accepted. |
 | `cross-user-resource` | A user can read another user's synthetic resource. |
 | `session-identity-crossover` | A reused session keeps Alice's established identity after its request credentials change to Bob. |
+
+OAuth-lab toggles:
+
+| Toggle | Simulated failure |
+| --- | --- |
+| `wrong-audience` | The MCP resource accepts a token intended for another resource. |
+| `token-passthrough` | The MCP access token is forwarded to and accepted by a downstream API. |
 
 The toggles may be repeated to combine failures. They affect only the
 disposable local lab.
@@ -163,6 +195,13 @@ session ID:
 
 ```sh
 uv run mcprift session-test http://127.0.0.1:8080/mcp
+```
+
+Run the bounded OAuth suite against the disposable OAuth lab:
+
+```sh
+uv run mcprift oauth-test http://127.0.0.1:8090/mcp
+uv run mcprift oauth-test http://127.0.0.1:8090/mcp --format sarif
 ```
 
 Send one deterministic raw JSON-RPC mutation. Valid kinds are
@@ -223,16 +262,15 @@ or test commands.
 
 ## Current scope and limitations
 
-MCPRift 0.2.0 does not implement full OAuth conformance, authorization-server
-discovery, PKCE, audience validation, token-passthrough detection, stdio
-targets, broad network scanning, exploit automation, or arbitrary third-party
-plugins. Session testing is deliberately limited to one deterministic actor
-change in one reused, handshake-era Streamable HTTP session. Modern
-sessionless MCP endpoints are outside this invariant, as are cookies, multiple
-concurrent sessions, server restarts, and replayed protocol messages. The lab
-uses fixed synthetic bearer values and an identity cache keyed by MCP session
-ID to exercise authorization outcomes; it is not an OAuth authorization
-server.
+MCPRift 0.3.0 does not claim complete OAuth conformance, stdio target support,
+broad network scanning, exploit automation, or arbitrary third-party plugins.
+Its OAuth checks use a disposable HTTP-only local provider; production TLS,
+external identity providers, dynamic client registration, refresh-token
+rotation, revocation, and browser interaction are outside the tested boundary.
+Session testing remains limited to one deterministic actor change in one
+reused, handshake-era Streamable HTTP session. Modern sessionless endpoints,
+cookies, concurrent sessions, server restarts, and replayed protocol messages
+remain outside that invariant.
 
 The project is experimental. Treat its results as bounded evidence for the
 tested target and configuration, not as a certification or a guarantee of

@@ -9,6 +9,7 @@ from typing import Any
 
 def terminal_report(evidence: dict[str, Any]) -> str:
     results = evidence["results"]
+    oauth_checks = evidence.get("oauth_checks", [])
     lines = []
     for result in results:
         case = result["case"]
@@ -16,7 +17,14 @@ def terminal_report(evidence: dict[str, Any]) -> str:
             f"{_plain(case['id'])}: {_plain(result['status']).upper()} - "
             f"{_plain(case['title'])}"
         )
-    counts = Counter(result["status"] for result in results)
+    for check in oauth_checks:
+        status = "PASS" if check["passed"] else "FAIL"
+        lines.append(
+            f"{_plain(check['check_id'])}: {status} - {_plain(check['title'])}"
+        )
+    statuses = [result["status"] for result in results]
+    statuses.extend("pass" if check["passed"] else "fail" for check in oauth_checks)
+    counts = Counter(statuses)
     lines.append(
         "summary: "
         f"{counts['pass']} passed, {counts['fail']} failed, "
@@ -55,6 +63,22 @@ def sarif_report(evidence: dict[str, Any]) -> str:
                     "actor": item["observation"]["actor"],
                     "status": item["status"],
                 },
+            }
+        )
+    for check in evidence.get("oauth_checks", []):
+        check_id = check["check_id"]
+        rules[check_id] = {
+            "id": check_id,
+            "shortDescription": {"text": check["title"]},
+            "properties": {"expected": check["expected"]},
+        }
+        if check["passed"]:
+            continue
+        findings.append(
+            {
+                "ruleId": check_id,
+                "level": "error",
+                "message": {"text": f"{check['title']}: observed {check['observed']}"},
             }
         )
     document = {

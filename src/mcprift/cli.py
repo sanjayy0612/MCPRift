@@ -16,6 +16,7 @@ from mcprift.capabilities import inspect_capabilities
 from mcprift.client import ConnectionFailure, connect
 from mcprift.evidence import create_evidence, read_evidence, write_evidence
 from mcprift.mutation import MutationKind, run_mutation
+from mcprift.oauth_checks import run_oauth_checks
 from mcprift.operations import Action, ActionKind, Outcome, compare_identities
 from mcprift.registry import CaseRegistry, default_registry
 from mcprift.replay import replay_case
@@ -84,6 +85,12 @@ def parser() -> argparse.ArgumentParser:
     )
     session_parser.add_argument("url", metavar="CONTROLLED_STREAMABLE_HTTP_URL")
     _add_report_arguments(session_parser)
+    oauth_parser = subcommands.add_parser(
+        "oauth-test",
+        help="run bounded OAuth, PKCE, audience, and passthrough checks",
+    )
+    oauth_parser.add_argument("url", metavar="CONTROLLED_OAUTH_LAB_URL")
+    _add_report_arguments(oauth_parser)
 
     mutation_parser = subcommands.add_parser(
         "mutate", help="send one deterministic raw JSON-RPC mutation"
@@ -231,6 +238,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(_render(evidence.to_dict(), arguments.format))
         print(f"evidence: {evidence_path}", file=sys.stderr)
         return _result_exit_code(results)
+
+    if arguments.command == "oauth-test":
+        try:
+            oauth_checks = asyncio.run(run_oauth_checks(arguments.url))
+            evidence = create_evidence(arguments.url, oauth_checks=oauth_checks)
+            evidence_path = write_evidence(evidence, arguments.evidence_dir)
+        except (ConnectionFailure, OSError, ValueError):
+            print("mcprift: OAuth checks failed", file=sys.stderr)
+            return 2
+        except Exception:
+            print("mcprift: OAuth checks failed", file=sys.stderr)
+            return 2
+        print(_render(evidence.to_dict(), arguments.format))
+        print(f"evidence: {evidence_path}", file=sys.stderr)
+        return 0 if all(check.passed for check in oauth_checks) else 1
 
     if arguments.command == "mutate":
         try:

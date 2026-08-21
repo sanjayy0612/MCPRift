@@ -17,7 +17,7 @@ class CliTests(unittest.TestCase):
     def test_version(self) -> None:
         result = self.run_cli("version")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "mcprift 0.2.0\n")
+        self.assertEqual(result.stdout, "mcprift 0.3.0\n")
         self.assertEqual(result.stderr, "")
 
     def test_help(self) -> None:
@@ -28,6 +28,7 @@ class CliTests(unittest.TestCase):
         self.assertIn("inspect", result.stdout)
         self.assertIn("compare", result.stdout)
         self.assertIn("session-test", result.stdout)
+        self.assertIn("oauth-test", result.stdout)
 
     def test_compare_requires_tokens_via_environment(self) -> None:
         result = self.run_cli(
