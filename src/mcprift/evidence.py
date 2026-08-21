@@ -15,6 +15,7 @@ from typing import Any
 from mcprift import __version__
 from mcprift.client import TRANSPORT, validate_controlled_url
 from mcprift.mutation import MutationObservation
+from mcprift.oauth_checks import OAuthCheckResult
 from mcprift.security import SecurityResult
 
 SCHEMA_VERSION = "1"
@@ -28,6 +29,7 @@ class EvidenceRun:
     target_fingerprint: str
     results: tuple[SecurityResult, ...] = ()
     mutations: tuple[MutationObservation, ...] = ()
+    oauth_checks: tuple[OAuthCheckResult, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -41,6 +43,7 @@ class EvidenceRun:
             },
             "results": [result.to_dict() for result in self.results],
             "mutations": [mutation.to_dict() for mutation in self.mutations],
+            "oauth_checks": [check.to_dict() for check in self.oauth_checks],
         }
 
 
@@ -49,6 +52,7 @@ def create_evidence(
     *,
     results: tuple[SecurityResult, ...] = (),
     mutations: tuple[MutationObservation, ...] = (),
+    oauth_checks: tuple[OAuthCheckResult, ...] = (),
 ) -> EvidenceRun:
     """Create evidence without retaining the target URL or credentials."""
     url = validate_controlled_url(raw_url)
@@ -58,6 +62,7 @@ def create_evidence(
         target_fingerprint=hashlib.sha256(url.encode()).hexdigest(),
         results=results,
         mutations=mutations,
+        oauth_checks=oauth_checks,
     )
 
 
@@ -98,6 +103,7 @@ def read_evidence(path: str | Path) -> dict[str, Any]:
         or value.get("schema_version") != SCHEMA_VERSION
         or not isinstance(value.get("results"), list)
         or not isinstance(value.get("mutations"), list)
+        or not isinstance(value.get("oauth_checks", []), list)
     ):
         raise ValueError("unsupported evidence schema")
     return value
