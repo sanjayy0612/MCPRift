@@ -171,6 +171,20 @@ contain only a `token_env` name, never a token value.
 For a step-by-step guide to writing a contract for your own MCP server, see
 [Writing an MCPRift authorization contract](docs/writing-contracts.md).
 
+## Public end-to-end example
+
+The companion [MCPRift pilot server](https://github.com/sanjayy0612/test_pilot)
+is a small independent Streamable HTTP server with two synthetic identities,
+Alice and Bob. Its contract lives in
+[`testdata/pilot-assessment.json`](testdata/pilot-assessment.json) and checks
+that each identity may read only its own synthetic profile.
+
+The pilot repository's GitHub Actions workflow starts the server and runs this
+contract from MCPRift on every push and pull request. It is a concrete example
+of the intended integration: keep the contract with the server's test setup so
+a cross-tenant regression blocks CI. Run the pilot in its deliberately
+vulnerable mode locally to see MCPRift report the expected failure.
+
 ## OAuth and PKCE lab
 
 The separate OAuth lab is a protected MCP resource and a minimal local

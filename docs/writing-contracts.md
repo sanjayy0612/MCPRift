@@ -169,15 +169,31 @@ Before committing a contract, answer all of these:
   values?
 - Does `mcprift validate assessment.json` pass before CI runs it?
 
-## How assisted drafting will work
+## Drafting with an AI assistant
 
-An inspected capability inventory can help draft a contract, but it cannot
-define your authorization policy. A future optional assistant may use the
-inventory plus a user-written policy brief to create an
-`assessment.draft.json`. It must also list assumptions and unanswered
-questions. A human reviews that draft, runs `validate`, and explicitly promotes
-it to the committed contract.
+You can use any code assistant to draft most of an `assessment.json` today.
+MCPRift does not need to call an LLM itself: the assistant writes a proposed
+file, then MCPRift validates and runs the reviewed file deterministically.
 
-Do not let an assistant silently mark tools safe, invent tenant identifiers,
-choose allow/deny outcomes, receive bearer tokens, or overwrite the reviewed
-contract.
+Give the assistant only:
+
+1. a sanitized `mcprift inspect --json` inventory;
+2. a plain-language policy table written by the server owner; and
+3. concrete, synthetic resource URIs for the cases to test.
+
+For example, ask it to generate schema version 2 JSON with these explicit
+rules: Alice may read `pilot://users/alice`, Alice must not read
+`pilot://users/bob`, Bob may read `pilot://users/bob`, and Bob must not read
+`pilot://users/alice`. Ask it to use the documented schema and output only a
+proposed JSON file. Save the result as `assessment.draft.json`, review it, then
+rename or copy it to `assessment.json` only after validation.
+
+The assistant can save typing, but it cannot discover the intended business
+policy from the server. Do not give it bearer tokens. Do not let it silently
+mark tools safe, invent tenant identifiers, choose allow/deny outcomes, or
+overwrite the reviewed contract. Always run:
+
+```sh
+uv run mcprift validate assessment.json
+uv run mcprift run assessment.json
+```
