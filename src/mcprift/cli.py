@@ -12,8 +12,14 @@ from typing import Any
 
 from mcprift import __version__
 from mcprift.actors import standard_actors
+from mcprift.assessment import (
+    contains_safe_actions,
+    load_assessment,
+    write_lab_template,
+)
 from mcprift.capabilities import inspect_capabilities
 from mcprift.client import ConnectionFailure, connect
+from mcprift.contract_runner import run_contract
 from mcprift.evidence import create_evidence, read_evidence, write_evidence
 from mcprift.mutation import MutationKind, run_mutation
 from mcprift.oauth_checks import run_oauth_checks
@@ -41,6 +47,27 @@ def parser() -> argparse.ArgumentParser:
     subcommands = command_parser.add_subparsers(dest="command")
     subcommands.add_parser("version", help="show the MCPRift version")
     subcommands.add_parser("help", help="show this help message")
+    init_parser = subcommands.add_parser(
+        "init", help="create a non-secret authorization contract"
+    )
+    init_parser.add_argument("path", metavar="ASSESSMENT_JSON")
+    init_parser.add_argument(
+        "--lab", action="store_true", required=True, help="use the disposable local lab"
+    )
+    validate_parser = subcommands.add_parser(
+        "validate", help="validate a contract without credentials or network access"
+    )
+    validate_parser.add_argument("path", metavar="ASSESSMENT_JSON")
+    run_parser = subcommands.add_parser(
+        "run", help="run a declared authorization contract"
+    )
+    run_parser.add_argument("path", metavar="ASSESSMENT_JSON")
+    run_parser.add_argument(
+        "--acknowledge-safe-actions",
+        action="store_true",
+        help="confirm that declared tool calls are reviewed safe actions",
+    )
+    _add_report_arguments(run_parser)
     connect_parser = subcommands.add_parser(
         "connect",
         help="make a baseline connection to a controlled Streamable HTTP URL",
@@ -138,6 +165,51 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments.command == "version":
         print(f"mcprift {__version__}")
         return 0
+
+    if arguments.command == "init":
+        try:
+            path = write_lab_template(arguments.path)
+        except (OSError, ValueError) as error:
+            print(f"mcprift: {error}", file=sys.stderr)
+            return 2
+        print(f"created lab contract: {path}")
+        return 0
+
+    if arguments.command == "validate":
+        try:
+            plan = load_assessment(arguments.path)
+        except (OSError, ValueError) as error:
+            print(f"mcprift: invalid assessment: {error}", file=sys.stderr)
+            return 2
+        print(
+            f"valid assessment: {len(plan.access)} access, "
+            f"{len(plan.visibility)} visibility, {len(plan.protocol)} protocol cases"
+        )
+        return 0
+
+    if arguments.command == "run":
+        try:
+            plan = load_assessment(arguments.path)
+            if contains_safe_actions(plan) and not arguments.acknowledge_safe_actions:
+                raise ValueError("tool-call cases require --acknowledge-safe-actions")
+            contract_results = asyncio.run(run_contract(plan))
+            evidence = create_evidence(
+                plan.target,
+                contract_results=contract_results,
+                safe_action_acknowledged=arguments.acknowledge_safe_actions,
+                safe_action_justifications=tuple(
+                    case.action.safety_justification
+                    for case in plan.access
+                    if case.action.safety_justification is not None
+                ),
+            )
+            evidence_path = write_evidence(evidence, arguments.evidence_dir)
+        except (ConnectionFailure, OSError, ValueError) as error:
+            print(f"mcprift: {error}", file=sys.stderr)
+            return 2
+        print(_render(evidence.to_dict(), arguments.format))
+        print(f"evidence: {evidence_path}", file=sys.stderr)
+        return _contract_exit_code(contract_results)
 
     if arguments.command == "inspect":
         try:
@@ -353,6 +425,12 @@ def _result_exit_code(results: tuple[SecurityResult, ...]) -> int:
     if any(result.status is ResultStatus.FAIL for result in results):
         return 1
     return 0
+
+
+def _contract_exit_code(results: tuple[dict[str, Any], ...]) -> int:
+    if any(result["verdict"] == "error" for result in results):
+        return 2
+    return 1 if any(result["verdict"] == "fail" for result in results) else 0
 
 
 if __name__ == "__main__":

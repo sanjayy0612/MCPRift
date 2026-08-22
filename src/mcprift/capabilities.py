@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from mcp import Client
 
+from mcprift.actors import Actor
 from mcprift.client import (
     ConnectionFailure,
     ConnectionResult,
@@ -51,20 +52,22 @@ PageFetcher = Callable[..., Awaitable[_Page]]
 
 
 async def inspect_capabilities(
-    raw_url: str, *, timeout_seconds: float = 10
+    raw_url: str, actor: Actor | None = None, *, timeout_seconds: float = 10
 ) -> CapabilityInventory:
     """Inspect a controlled server without invoking any listed capability."""
     url = validate_controlled_url(raw_url)
     try:
-        return await asyncio.wait_for(_inspect_with_sdk(url), timeout=timeout_seconds)
+        return await asyncio.wait_for(
+            _inspect_with_sdk(url, actor), timeout=timeout_seconds
+        )
     except (ConnectionFailure, TimeoutError):
         raise
     except Exception as error:
         raise ConnectionFailure("MCP capability inspection failed") from error
 
 
-async def _inspect_with_sdk(url: str) -> CapabilityInventory:
-    async with controlled_client(url) as client:
+async def _inspect_with_sdk(url: str, actor: Actor | None) -> CapabilityInventory:
+    async with controlled_client(url, actor) as client:
         return await inspect_client(client)
 
 
