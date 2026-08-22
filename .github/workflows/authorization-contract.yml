@@ -12,11 +12,6 @@ permissions:
 jobs:
   local-contract:
     runs-on: ubuntu-latest
-    env:
-      MCPRIFT_AUTH_TOKEN: mcprift-lab-alice
-      MCPRIFT_BOB_TOKEN: mcprift-lab-bob
-      MCPRIFT_INVALID_TOKEN: mcprift-lab-invalid
-      MCPRIFT_EXPIRED_TOKEN: mcprift-lab-expired
     steps:
       - uses: actions/checkout@v4
 
@@ -38,6 +33,11 @@ jobs:
           uv build
 
       - name: Run the secure authorization contract
+        env:
+          MCPRIFT_AUTH_TOKEN: mcprift-lab-alice
+          MCPRIFT_BOB_TOKEN: mcprift-lab-bob
+          MCPRIFT_INVALID_TOKEN: mcprift-lab-invalid
+          MCPRIFT_EXPIRED_TOKEN: mcprift-lab-expired
         run: |
           set -euo pipefail
           mkdir -p artifacts/mcprift
@@ -68,6 +68,11 @@ jobs:
           if-no-files-found: error
 
       - name: Verify a seeded tenant-isolation regression fails
+        env:
+          MCPRIFT_AUTH_TOKEN: mcprift-lab-alice
+          MCPRIFT_BOB_TOKEN: mcprift-lab-bob
+          MCPRIFT_INVALID_TOKEN: mcprift-lab-invalid
+          MCPRIFT_EXPIRED_TOKEN: mcprift-lab-expired
         run: |
           set -euo pipefail
           uv run python -m mcprift.lab --vulnerable cross-user-resource > /tmp/mcprift-vulnerable-lab.log 2>&1 &
@@ -92,7 +97,7 @@ jobs:
           test "$status" -eq 1
 
       - name: Upload seeded-regression SARIF
-        if: always()
+        if: always() && hashFiles('artifacts/seeded-regression.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: artifacts/seeded-regression.sarif
