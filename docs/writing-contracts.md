@@ -175,6 +175,9 @@ You can use any code assistant to draft most of an `assessment.json` today.
 MCPRift does not need to call an LLM itself: the assistant writes a proposed
 file, then MCPRift validates and runs the reviewed file deterministically.
 
+For a reusable interview prompt and complete example, see
+[AI-assisted MCPRift contract authoring](ai-assisted-contract-authoring.md).
+
 Give the assistant only:
 
 1. a sanitized `mcprift inspect --json` inventory;
