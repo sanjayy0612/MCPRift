@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "target": "http://127.0.0.1:3000/mcp",
+  "actors": {
+    "alice": {
+      "kind": "authenticated",
+      "token_env": "PILOT_ALICE_TOKEN"
+    },
+    "bob": {
+      "kind": "authenticated",
+      "token_env": "PILOT_BOB_TOKEN"
+    }
+  },
+  "access": [
+    {
+      "id": "PILOT-AUTH-001",
+      "title": "Alice can read her pilot profile",
+      "actor": "alice",
+      "action": {
+        "kind": "resource-read",
+        "target": "pilot://users/alice"
+      },
+      "expected": "allowed"
+    },
+    {
+      "id": "PILOT-AUTH-002",
+      "title": "Alice cannot read Bob's pilot profile",
+      "actor": "alice",
+      "action": {
+        "kind": "resource-read",
+        "target": "pilot://users/bob"
+      },
+      "expected": "denied"
+    },
+    {
+      "id": "PILOT-AUTH-003",
+      "title": "Bob can read his pilot profile",
+      "actor": "bob",
+      "action": {
+        "kind": "resource-read",
+        "target": "pilot://users/bob"
+      },
+      "expected": "allowed"
+    },
+    {
+      "id": "PILOT-AUTH-004",
+      "title": "Bob cannot read Alice's pilot profile",
+      "actor": "bob",
+      "action": {
+        "kind": "resource-read",
+        "target": "pilot://users/alice"
+      },
+      "expected": "denied"
+    }
+  ],
+  "visibility": [],
+  "protocol": []
+}

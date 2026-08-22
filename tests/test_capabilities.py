@@ -10,6 +10,25 @@ from mcprift.capabilities import inspect_client
 
 
 class CapabilityTests(unittest.TestCase):
+    def test_skips_unadvertised_capability_methods(self) -> None:
+        """A server that has no prompts must not receive prompts/list."""
+        server = MCPServer("no-prompts-fixture", version="1.0")
+
+        @server.tool()
+        def whoami() -> str:
+            return "alice"
+
+        async def inspect() -> object:
+            async with Client(server, client_info=None) as client:
+                return await inspect_client(client)
+
+        inventory = asyncio.run(inspect())
+
+        self.assertEqual(
+            [(item.kind, item.name) for item in inventory.capabilities],
+            [("tool", "whoami")],
+        )
+
     def test_inspects_capabilities_without_invoking_them(self) -> None:
         server = MCPServer("capability-fixture", version="1.0")
         invoked = False

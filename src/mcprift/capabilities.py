@@ -80,12 +80,27 @@ async def inspect_client(client: Client) -> CapabilityInventory:
         server_version=server_info.version if server_info else "unknown",
     )
 
-    tools = await _all_pages(client.list_tools, "tools")
-    resources = await _all_pages(client.list_resources, "resources")
-    resource_templates = await _all_pages(
-        client.list_resource_templates, "resource_templates"
+    # MCP servers advertise the list methods they implement during initialization.
+    # Calling an unadvertised method is a protocol error, not an empty result.
+    capabilities = client.server_capabilities
+    tools = (
+        await _all_pages(client.list_tools, "tools") if capabilities.tools else []
     )
-    prompts = await _all_pages(client.list_prompts, "prompts")
+    resources = (
+        await _all_pages(client.list_resources, "resources")
+        if capabilities.resources
+        else []
+    )
+    resource_templates = (
+        await _all_pages(client.list_resource_templates, "resource_templates")
+        if capabilities.resources
+        else []
+    )
+    prompts = (
+        await _all_pages(client.list_prompts, "prompts")
+        if capabilities.prompts
+        else []
+    )
 
     capabilities = [
         Capability(
