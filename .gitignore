@@ -7,6 +7,7 @@ PLAN.md
 # Local Python environment and tool caches
 .venv/
 .ruff_cache/
+dist/
 __pycache__/
 *.py[cod]
 
@@ -14,9 +15,11 @@ __pycache__/
 mcprift-evidence/
 AGENTS.md
 docs
+!docs/
+!docs/writing-contracts.md
 MATURITY.md
 CONTEXT.md
 
 RESEARCH-MAPPING.md
 RESEARCH-MCPRIFT-CI-OAUTH-DIRECTION-2026-08.md 
-RESEARCH-MCPRIFT-RELIABLE-BUILD-PLAN-2026-08.md 
+RESEARCH-MCPRIFT-RELIABLE-BUILD-PLAN-2026-08.md

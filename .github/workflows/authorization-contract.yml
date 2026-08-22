@@ -35,6 +35,7 @@ jobs:
         run: |
           uv run python -m unittest discover -s tests -v
           uv run ruff check .
+          uv build
 
       - name: Run the secure authorization contract
         run: |

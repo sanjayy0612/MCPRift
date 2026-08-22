@@ -15,6 +15,8 @@ It is designed for authorized testing of local or otherwise controlled targets.
 It is not a network scanner, exploit framework, complete OAuth certification
 suite, or general-purpose MCP client.
 
+Licensed under [Apache-2.0](LICENSE).
+
 ## What it does
 
 MCPRift currently provides:
@@ -85,7 +87,18 @@ The project currently depends on `mcp==2.0.0` and `httpx2`.
 
 ## Quick start: disposable lab and CI contract
 
-The fastest way to try MCPRift is with its local lab. The lab binds to
+The fastest way to try MCPRift is the one-command demo:
+
+```sh
+uv sync
+uv run mcprift demo
+```
+
+It starts the disposable lab on a temporary loopback port, runs the 22-case
+contract, and removes the lab and temporary contract afterward. To retain
+sanitized evidence, add `--evidence-dir mcprift-evidence`.
+
+To see the individual steps, start the local lab yourself. The lab binds to
 `127.0.0.1:8080` by default and serves synthetic, side-effect-free data.
 
 In terminal one:
@@ -150,6 +163,9 @@ are `tool-call`, `resource-read`, or `prompt-get`; visibility cases assert
 whether one tool, resource, resource template, or prompt is visible to one
 actor; protocol cases select one deterministic mutation. Credentialed actors
 contain only a `token_env` name, never a token value.
+
+For a step-by-step guide to writing a contract for your own MCP server, see
+[Writing an MCPRift authorization contract](docs/writing-contracts.md).
 
 ## OAuth and PKCE lab
 
@@ -226,7 +242,15 @@ uv run mcprift inspect http://127.0.0.1:8080/mcp --json
 ```
 
 `inspect` lists capabilities but does not invoke tools, read resources, or run
-prompts.
+prompts. To inspect what a credentialed test identity can see, provide a name
+and token environment variable; the token itself is never accepted on the
+command line or written to the output:
+
+```sh
+export TEST_ALICE_TOKEN='...'
+uv run mcprift inspect http://127.0.0.1:8080/mcp \
+  --actor alice --token-env TEST_ALICE_TOKEN --json > alice-inventory.json
+```
 
 Compare one explicitly safe tool across identity contexts. The three token
 variables below are required; their values never appear in output or evidence:

@@ -6,12 +6,18 @@ import argparse
 import asyncio
 import json
 import os
+import socket
+import subprocess
 import sys
-from collections.abc import Sequence
+import tempfile
+import time
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 from mcprift import __version__
-from mcprift.actors import standard_actors
+from mcprift.actors import Actor, ActorKind, actor_from_environment, standard_actors
 from mcprift.assessment import (
     contains_safe_actions,
     load_assessment,
@@ -47,6 +53,14 @@ def parser() -> argparse.ArgumentParser:
     subcommands = command_parser.add_subparsers(dest="command")
     subcommands.add_parser("version", help="show the MCPRift version")
     subcommands.add_parser("help", help="show this help message")
+    demo_parser = subcommands.add_parser(
+        "demo", help="run the disposable local lab with no setup"
+    )
+    demo_parser.add_argument(
+        "--evidence-dir",
+        metavar="PATH",
+        help="optionally save sanitized demo evidence in this directory",
+    )
     init_parser = subcommands.add_parser(
         "init", help="create a non-secret authorization contract"
     )
@@ -78,6 +92,22 @@ def parser() -> argparse.ArgumentParser:
         help="list capabilities without invoking them",
     )
     inspect_parser.add_argument("url", metavar="CONTROLLED_STREAMABLE_HTTP_URL")
+    inspect_parser.add_argument(
+        "--actor",
+        metavar="NAME",
+        help="inspect capabilities visible to this named actor",
+    )
+    inspect_parser.add_argument(
+        "--actor-kind",
+        choices=tuple(kind.value for kind in ActorKind),
+        default=ActorKind.AUTHENTICATED.value,
+        help="actor kind when --actor is set (default: authenticated)",
+    )
+    inspect_parser.add_argument(
+        "--token-env",
+        metavar="NAME",
+        help="environment variable holding the actor bearer token",
+    )
     inspect_parser.add_argument(
         "--json", action="store_true", help="write the inventory as JSON"
     )
@@ -166,6 +196,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"mcprift {__version__}")
         return 0
 
+    if arguments.command == "demo":
+        return _run_demo(arguments.evidence_dir)
+
     if arguments.command == "init":
         try:
             path = write_lab_template(arguments.path)
@@ -213,8 +246,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if arguments.command == "inspect":
         try:
-            inventory = asyncio.run(inspect_capabilities(arguments.url))
-        except ConnectionFailure as error:
+            actor = _inspection_actor(arguments)
+            inventory = asyncio.run(inspect_capabilities(arguments.url, actor))
+        except (ConnectionFailure, ValueError) as error:
             print(f"mcprift: {error}", file=sys.stderr)
             return 1
         if arguments.json:
@@ -392,6 +426,125 @@ def _required_token(variable: str) -> str:
             "required actor credential environment variable is not set"
         )
     return token
+
+
+def _run_demo(evidence_dir: str | None) -> int:
+    """Run the bundled lab in a temporary workspace, then clean it up."""
+    lab: subprocess.Popen[bytes] | None = None
+    try:
+        port = _available_loopback_port()
+        target = f"http://127.0.0.1:{port}/mcp"
+        lab = subprocess.Popen(
+            [sys.executable, "-m", "mcprift.lab", "--port", str(port)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        _wait_for_lab(port, lab)
+        with tempfile.TemporaryDirectory(prefix="mcprift-demo-") as directory:
+            assessment_path = _demo_assessment(Path(directory), target)
+            with _demo_credentials():
+                plan = load_assessment(assessment_path)
+                contract_results = asyncio.run(run_contract(plan))
+            exit_code = _contract_exit_code(contract_results)
+            passed = sum(item["verdict"] == "pass" for item in contract_results)
+            failed = [
+                item["case_id"]
+                for item in contract_results
+                if item["verdict"] != "pass"
+            ]
+            print("MCPRift demo: bundled local authorization lab")
+            print(f"checked {len(contract_results)} cases: {passed} passed")
+            if failed:
+                print(f"needs attention: {', '.join(failed)}")
+            else:
+                print("result: all expected access boundaries held")
+            if evidence_dir is not None:
+                evidence = create_evidence(
+                    target,
+                    contract_results=contract_results,
+                    safe_action_acknowledged=True,
+                    safe_action_justifications=(
+                        "The bundled lab safe_echo tool only echoes a fixed "
+                        "probe message.",
+                    ),
+                )
+                evidence_path = write_evidence(evidence, evidence_dir)
+                print(f"sanitized evidence: {evidence_path}")
+            print("next: inspect your controlled MCP server, then write its contract")
+            return exit_code
+    except (ConnectionFailure, OSError, ValueError) as error:
+        print(f"mcprift: demo could not run: {error}", file=sys.stderr)
+        return 2
+    finally:
+        if lab is not None and lab.poll() is None:
+            lab.terminate()
+            try:
+                lab.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                lab.kill()
+                lab.wait(timeout=5)
+
+
+def _available_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        return listener.getsockname()[1]
+
+
+def _wait_for_lab(port: int, lab: subprocess.Popen[bytes]) -> None:
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        if lab.poll() is not None:
+            raise ConnectionFailure("bundled lab exited before accepting connections")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+            if client.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.05)
+    raise ConnectionFailure("bundled lab did not start within 10 seconds")
+
+
+def _demo_assessment(directory: Path, target: str) -> Path:
+    path = write_lab_template(directory / "assessment.json")
+    contract = json.loads(path.read_text(encoding="utf-8"))
+    contract["target"] = target
+    path.write_text(json.dumps(contract), encoding="utf-8")
+    return path
+
+
+@contextmanager
+def _demo_credentials() -> Iterator[None]:
+    credentials = {
+        "MCPRIFT_AUTH_TOKEN": "mcprift-lab-alice",
+        "MCPRIFT_BOB_TOKEN": "mcprift-lab-bob",
+        "MCPRIFT_INVALID_TOKEN": "mcprift-lab-invalid",
+        "MCPRIFT_EXPIRED_TOKEN": "mcprift-lab-expired",
+    }
+    previous = {name: os.environ.get(name) for name in credentials}
+    os.environ.update(credentials)
+    try:
+        yield
+    finally:
+        for name, value in previous.items():
+            if value is None:
+                del os.environ[name]
+            else:
+                os.environ[name] = value
+
+
+def _inspection_actor(arguments: argparse.Namespace) -> Actor | None:
+    """Resolve an optional inspect identity without exposing its credential."""
+    if arguments.actor is None:
+        if arguments.token_env is not None:
+            raise ValueError("--token-env requires --actor")
+        return None
+    kind = ActorKind(arguments.actor_kind)
+    if kind is ActorKind.ANONYMOUS:
+        if arguments.token_env is not None:
+            raise ValueError("anonymous --actor cannot define --token-env")
+        return Actor(arguments.actor, kind)
+    if arguments.token_env is None:
+        raise ValueError("credentialed --actor requires --token-env")
+    return actor_from_environment(arguments.actor, kind, arguments.token_env)
 
 
 def _registry_from_environment() -> CaseRegistry:

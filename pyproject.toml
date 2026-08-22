@@ -7,6 +7,7 @@ name = "mcprift"
 version = "0.4.0"
 description = "A bounded MCP security-testing framework for controlled targets."
 readme = "README.md"
+license = {text = "Apache-2.0"}
 requires-python = ">=3.12"
 dependencies = ["httpx2>=2.5,<3", "mcp==2.0.0"]
 
