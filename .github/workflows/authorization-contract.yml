@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   local-contract:
@@ -96,8 +95,10 @@ jobs:
           set -e
           test "$status" -eq 1
 
-      - name: Upload seeded-regression SARIF
+      - name: Upload seeded-regression evidence
         if: always() && hashFiles('artifacts/seeded-regression.sarif') != ''
-        uses: github/codeql-action/upload-sarif@v3
+        uses: actions/upload-artifact@v4
         with:
-          sarif_file: artifacts/seeded-regression.sarif
+          name: seeded-regression-sarif
+          path: artifacts/seeded-regression.sarif
+          if-no-files-found: error
