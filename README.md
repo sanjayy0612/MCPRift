@@ -98,6 +98,10 @@ It starts the disposable lab on a temporary loopback port, runs the 22-case
 contract, and removes the lab and temporary contract afterward. To retain
 sanitized evidence, add `--evidence-dir mcprift-evidence`.
 
+Interactive terminal output uses green for successful checks and yellow for
+guidance or attention-required results. Set `NO_COLOR=1` to disable terminal
+colors. JSON, SARIF, evidence files, and redirected output remain uncolored.
+
 To see the individual steps, start the local lab yourself. The lab binds to
 `127.0.0.1:8080` by default and serves synthetic, side-effect-free data.
 

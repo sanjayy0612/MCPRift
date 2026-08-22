@@ -40,6 +40,7 @@ from mcprift.security import (
     SecurityResult,
     run_cases,
 )
+from mcprift.terminal import color_enabled, green, yellow
 
 
 def parser() -> argparse.ArgumentParser:
@@ -205,7 +206,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         except (OSError, ValueError) as error:
             print(f"mcprift: {error}", file=sys.stderr)
             return 2
-        print(f"created lab contract: {path}")
+        print(_green(f"created lab contract: {path}"))
         return 0
 
     if arguments.command == "validate":
@@ -215,8 +216,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"mcprift: invalid assessment: {error}", file=sys.stderr)
             return 2
         print(
-            f"valid assessment: {len(plan.access)} access, "
-            f"{len(plan.visibility)} visibility, {len(plan.protocol)} protocol cases"
+            _green("valid assessment")
+            + f": {len(plan.access)} access, {len(plan.visibility)} visibility, "
+            f"{len(plan.protocol)} protocol cases"
         )
         return 0
 
@@ -452,12 +454,15 @@ def _run_demo(evidence_dir: str | None) -> int:
                 for item in contract_results
                 if item["verdict"] != "pass"
             ]
-            print("MCPRift demo: bundled local authorization lab")
-            print(f"checked {len(contract_results)} cases: {passed} passed")
+            print(_green("MCPRift demo: bundled local authorization lab"))
+            print(
+                f"checked {len(contract_results)} cases: "
+                f"{_green(f'{passed} passed')}"
+            )
             if failed:
-                print(f"needs attention: {', '.join(failed)}")
+                print(_yellow(f"needs attention: {', '.join(failed)}"))
             else:
-                print("result: all expected access boundaries held")
+                print(_green("result: all expected access boundaries held"))
             if evidence_dir is not None:
                 evidence = create_evidence(
                     target,
@@ -469,8 +474,12 @@ def _run_demo(evidence_dir: str | None) -> int:
                     ),
                 )
                 evidence_path = write_evidence(evidence, evidence_dir)
-                print(f"sanitized evidence: {evidence_path}")
-            print("next: inspect your controlled MCP server, then write its contract")
+                print(_yellow(f"sanitized evidence: {evidence_path}"))
+            print(
+                _yellow(
+                    "next: inspect your controlled MCP server, then write its contract"
+                )
+            )
             return exit_code
     except (ConnectionFailure, OSError, ValueError) as error:
         print(f"mcprift: demo could not run: {error}", file=sys.stderr)
@@ -569,7 +578,15 @@ def _render(evidence: dict[str, Any], output_format: str) -> str:
         return json_report(evidence)
     if output_format == "sarif":
         return sarif_report(evidence)
-    return terminal_report(evidence)
+    return terminal_report(evidence, color=color_enabled(sys.stdout))
+
+
+def _green(text: str) -> str:
+    return green(text, enabled=color_enabled(sys.stdout))
+
+
+def _yellow(text: str) -> str:
+    return yellow(text, enabled=color_enabled(sys.stdout))
 
 
 def _result_exit_code(results: tuple[SecurityResult, ...]) -> int:

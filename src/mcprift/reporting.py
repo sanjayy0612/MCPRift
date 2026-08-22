@@ -6,33 +6,34 @@ import json
 from collections import Counter
 from typing import Any
 
+from mcprift.terminal import green, verdict, yellow
 
-def terminal_report(evidence: dict[str, Any]) -> str:
+
+def terminal_report(evidence: dict[str, Any], *, color: bool = False) -> str:
     contract_results = evidence.get("contract_results", [])
     if contract_results:
-        return _contract_terminal_report(evidence, contract_results)
+        return _contract_terminal_report(evidence, contract_results, color=color)
     results = evidence["results"]
     oauth_checks = evidence.get("oauth_checks", [])
     lines = []
     for result in results:
         case = result["case"]
+        status = verdict(
+            _plain(result["status"]).upper(), result["status"], enabled=color
+        )
         lines.append(
-            f"{_plain(case['id'])}: {_plain(result['status']).upper()} - "
-            f"{_plain(case['title'])}"
+            f"{_plain(case['id'])}: {status} - {_plain(case['title'])}"
         )
     for check in oauth_checks:
-        status = "PASS" if check["passed"] else "FAIL"
+        raw_status = "pass" if check["passed"] else "fail"
+        status = verdict(raw_status.upper(), raw_status, enabled=color)
         lines.append(
             f"{_plain(check['check_id'])}: {status} - {_plain(check['title'])}"
         )
     statuses = [result["status"] for result in results]
     statuses.extend("pass" if check["passed"] else "fail" for check in oauth_checks)
     counts = Counter(statuses)
-    lines.append(
-        "summary: "
-        f"{counts['pass']} passed, {counts['fail']} failed, "
-        f"{counts['error']} errors"
-    )
+    lines.append(_summary(counts, color=color))
     return "\n".join(lines)
 
 
@@ -138,27 +139,39 @@ def sarif_report(evidence: dict[str, Any]) -> str:
 
 
 def _contract_terminal_report(
-    evidence: dict[str, Any], results: list[dict[str, Any]]
+    evidence: dict[str, Any], results: list[dict[str, Any]], *, color: bool
 ) -> str:
-    lines = ["case_id | identity | capability/probe | expected | observed | verdict"]
+    lines = [
+        green(
+            "case_id | identity | capability/probe | expected | observed | verdict",
+            enabled=color,
+        )
+    ]
     for item in results:
         identity = item.get("identity") or {"name": "protocol"}
         identity_text = identity.get("name", "protocol")
         probe = item.get("probe", {})
         probe_text = probe.get("kind", "unknown")
+        status = verdict(
+            _plain(item["verdict"]).upper(), item["verdict"], enabled=color
+        )
         lines.append(
             f"{_plain(item['case_id'])} | {_plain(identity_text)} | "
             f"{_plain(probe_text)} | {_plain(item['expected'])} | "
-            f"{_plain(item['observed'])} | {_plain(item['verdict']).upper()}"
+            f"{_plain(item['observed'])} | {status}"
         )
     counts = Counter(item["verdict"] for item in results)
-    lines.append(
-        f"summary: {counts['pass']} passed, {counts['fail']} failed, "
-        f"{counts['error']} errors"
-    )
+    lines.append(_summary(counts, color=color))
     return "\n".join(lines)
 
 
 def _plain(value: object) -> str:
     """Keep tampered evidence from injecting terminal control sequences."""
     return "".join(character for character in str(value) if character.isprintable())
+
+
+def _summary(counts: Counter[str], *, color: bool) -> str:
+    passed = green(f"{counts['pass']} passed", enabled=color)
+    failed = yellow(f"{counts['fail']} failed", enabled=color)
+    errors = yellow(f"{counts['error']} errors", enabled=color)
+    return f"summary: {passed}, {failed}, {errors}"
