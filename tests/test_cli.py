@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 
 class CliTests(unittest.TestCase):
@@ -17,7 +19,7 @@ class CliTests(unittest.TestCase):
     def test_version(self) -> None:
         result = self.run_cli("version")
         self.assertEqual(result.returncode, 0)
-        self.assertEqual(result.stdout, "mcprift 0.3.0\n")
+        self.assertEqual(result.stdout, "mcprift 0.4.0\n")
         self.assertEqual(result.stderr, "")
 
     def test_help(self) -> None:
@@ -44,3 +46,22 @@ class CliTests(unittest.TestCase):
         result = self.run_cli("connect", "http://user:secret@127.0.0.1:8080/mcp")
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("secret", result.stderr)
+
+    def test_init_and_validate_do_not_need_credentials(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "assessment.json")
+            initialized = self.run_cli("init", path, "--lab")
+            validated = self.run_cli("validate", path)
+
+        self.assertEqual(initialized.returncode, 0)
+        self.assertEqual(validated.returncode, 0)
+        self.assertIn("valid assessment", validated.stdout)
+
+    def test_run_requires_safe_action_acknowledgment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "assessment.json")
+            self.assertEqual(self.run_cli("init", path, "--lab").returncode, 0)
+            result = self.run_cli("run", path)
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("acknowledge-safe-actions", result.stderr)

@@ -1,4 +1,4 @@
-# MCPRift
+# MCPRift 0.4
 
 <p align="center">
   <img src="assets/mcprift-logo.png" alt="MCPRift logo" width="180">
@@ -6,7 +6,7 @@
 
 > Find the seam before someone crosses it.
 
-MCPRift is an experimental, bounded security-testing framework for [Model
+MCPRift is an experimental, bounded authorization-contract runner for [Model
 Context Protocol (MCP)](https://modelcontextprotocol.io/) servers. It checks
 whether a controlled server's authorization boundary behaves as expected when
 the client presents different identities or sends unusual protocol requests.
@@ -39,6 +39,22 @@ MCPRift currently provides:
 - **A disposable local lab** with opt-in vulnerability toggles for reproducible
   tests.
 
+The primary CI workflow is contract-driven:
+
+```sh
+mcprift init assessment.json --lab
+mcprift validate assessment.json
+mcprift run assessment.json --acknowledge-safe-actions
+```
+
+`init` writes a runnable, non-secret JSON contract. `validate` performs only
+offline structural and safety checks and does not need credential variables.
+`run` resolves credentials from the declared environment-variable names,
+executes access, visibility, session, and protocol cases, and writes sanitized
+terminal, JSON, or SARIF evidence. It returns `0` for passing verdicts, `1`
+for security-policy failures, and `2` for invalid configuration or execution
+errors.
+
 ## Safety boundary
 
 Safety constraints are part of the implementation, not just usage advice:
@@ -46,8 +62,9 @@ Safety constraints are part of the implementation, not just usage advice:
 - Targets must be absolute, credential-free `http` or `https` URLs on a
   loopback host such as `127.0.0.1` or `localhost`.
 - Redirects are disabled for SDK-managed requests and raw mutations.
-- Tool calls require an explicit `known_safe=True` assertion in code. The
-  built-in suite invokes only the lab's side-effect-free `safe_echo` tool.
+- Tool calls require `known_safe: true`, a non-empty safety justification, and
+  the run-time `--acknowledge-safe-actions` flag. The lab contract invokes only
+  the side-effect-free `safe_echo` tool.
 - Bearer tokens are read from environment variables, never URL or CLI token
   arguments.
 - Evidence stores a target fingerprint rather than the target URL.
@@ -66,7 +83,7 @@ Use MCPRift only against systems and data you are authorized to assess.
 
 The project currently depends on `mcp==2.0.0` and `httpx2`.
 
-## Quick start: disposable lab
+## Quick start: disposable lab and CI contract
 
 The fastest way to try MCPRift is with its local lab. The lab binds to
 `127.0.0.1:8080` by default and serves synthetic, side-effect-free data.
@@ -86,15 +103,53 @@ export MCPRIFT_BOB_TOKEN=mcprift-lab-bob
 export MCPRIFT_INVALID_TOKEN=mcprift-lab-invalid
 export MCPRIFT_EXPIRED_TOKEN=mcprift-lab-expired
 
-uv run mcprift test http://127.0.0.1:8080/mcp
+uv run mcprift init assessment.json --lab
+uv run mcprift validate assessment.json
+uv run mcprift run assessment.json --acknowledge-safe-actions
 ```
 
-The secure lab should produce nine passing checks. The command writes a
+The secure lab should produce 22 passing contract cases. The command writes a
 private evidence file under `mcprift-evidence/` and returns:
 
 - `0` when all selected checks pass;
 - `1` when a security check fails;
 - `2` when execution or configuration fails.
+
+## CI
+
+The checked-in [authorization-contract workflow](.github/workflows/authorization-contract.yml)
+is the reference CI integration. It runs the unit suite and Ruff, starts the
+disposable lab, validates and runs the secure contract, uploads its private
+evidence, and confirms that a seeded cross-tenant regression returns exit code
+`1`. The seeded failure is uploaded as SARIF so a pull request receives an
+actionable annotation.
+
+Run the same checks locally:
+
+```sh
+uv sync
+uv run python -m unittest discover -s tests -v
+uv run ruff check .
+```
+
+The workflow intentionally tests only the bundled loopback lab. A remote
+staging target and a real identity provider are later, explicitly controlled
+integration phases; a passing local workflow is not evidence about production.
+
+For CI, keep credentials in the job's secret environment and make the
+evidence directory an explicit artifact path:
+
+```sh
+uv run mcprift validate assessment.json
+uv run mcprift run assessment.json \
+  --acknowledge-safe-actions --format sarif --evidence-dir artifacts/mcprift
+```
+
+Contracts contain `access`, `visibility`, and `protocol` cases. Access actions
+are `tool-call`, `resource-read`, or `prompt-get`; visibility cases assert
+whether one tool, resource, resource template, or prompt is visible to one
+actor; protocol cases select one deterministic mutation. Credentialed actors
+contain only a `token_env` name, never a token value.
 
 ## OAuth and PKCE lab
 
@@ -126,6 +181,8 @@ uv run python -m mcprift.lab --vulnerable anonymous-tool
 uv run python -m mcprift.lab --vulnerable expired-credential
 uv run python -m mcprift.lab --vulnerable cross-user-resource
 uv run python -m mcprift.lab --vulnerable session-identity-crossover
+uv run python -m mcprift.lab --vulnerable prompt-access
+uv run python -m mcprift.lab --vulnerable capability-visibility-leak
 uv run python -m mcprift.oauth_lab --vulnerable wrong-audience
 uv run python -m mcprift.oauth_lab --vulnerable token-passthrough
 ```
@@ -138,6 +195,8 @@ Available toggles:
 | `expired-credential` | The expired lab credential is accepted. |
 | `cross-user-resource` | A user can read another user's synthetic resource. |
 | `session-identity-crossover` | A reused session keeps Alice's established identity after its request credentials change to Bob. |
+| `prompt-access` | Anonymous callers can retrieve the protected review prompt. |
+| `capability-visibility-leak` | Anonymous capability listings expose protected templates and prompts. |
 
 OAuth-lab toggles:
 
@@ -262,9 +321,10 @@ or test commands.
 
 ## Current scope and limitations
 
-MCPRift 0.3.0 does not claim complete OAuth conformance, stdio target support,
+MCPRift 0.4.0 does not claim complete OAuth conformance, stdio target support,
 broad network scanning, exploit automation, or arbitrary third-party plugins.
-Its OAuth checks use a disposable HTTP-only local provider; production TLS,
+The OAuth suite remains explicitly lab-only and uses a disposable HTTP-only
+local provider; production TLS,
 external identity providers, dynamic client registration, refresh-token
 rotation, revocation, and browser interaction are outside the tested boundary.
 Session testing remains limited to one deterministic actor change in one

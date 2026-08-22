@@ -30,6 +30,8 @@ class MutationObservation:
     content_type: str
     response_bytes: int
     response_sha256: str
+    json_rpc_error: bool
+    session_established: bool
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
@@ -89,10 +91,36 @@ async def _post_mutation(url: str, kind: MutationKind) -> MutationObservation:
                     raise ValueError("mutation response limit exceeded")
                 content.extend(chunk)
     content_type = response.headers.get("content-type", "").split(";", 1)[0]
+    body = bytes(content)
     return MutationObservation(
         kind=kind,
         http_status=response.status_code,
         content_type=content_type,
         response_bytes=len(content),
-        response_sha256=hashlib.sha256(bytes(content)).hexdigest(),
+        response_sha256=hashlib.sha256(body).hexdigest(),
+        json_rpc_error=_contains_json_rpc_error(body, content_type),
+        # A rejected request may still receive an implementation-specific
+        # session header. It is not a usable MCP session until the request was
+        # accepted by the protocol endpoint.
+        session_established=(
+            response.status_code < 400 and "mcp-session-id" in response.headers
+        ),
+    )
+
+
+def _contains_json_rpc_error(body: bytes, content_type: str) -> bool:
+    """Derive an error bit in memory without retaining the response body."""
+    try:
+        if content_type == "text/event-stream":
+            values = []
+            for line in body.decode("utf-8", "replace").splitlines():
+                if line.startswith("data:"):
+                    values.append(json.loads(line[5:].strip()))
+        else:
+            values = [json.loads(body)]
+    except (UnicodeError, json.JSONDecodeError):
+        return False
+    return any(
+        isinstance(value, dict) and isinstance(value.get("error"), dict)
+        for value in values
     )

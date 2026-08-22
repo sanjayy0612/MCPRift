@@ -135,7 +135,7 @@ async def controlled_session(
 ) -> AsyncIterator[ControlledSession]:
     """Open an SDK session and expose only an explicit actor rebind operation."""
     url = validate_controlled_url(raw_url)
-    headers = actor.headers if actor is not None else {}
+    headers = actor.headers if actor is not None else {"X-MCPRift-Unbound": "true"}
     async with httpx2.AsyncClient(
         headers=headers, follow_redirects=False
     ) as http_client:

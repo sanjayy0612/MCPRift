@@ -1,0 +1,97 @@
+name: Authorization contract
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  local-contract:
+    runs-on: ubuntu-latest
+    env:
+      MCPRIFT_AUTH_TOKEN: mcprift-lab-alice
+      MCPRIFT_BOB_TOKEN: mcprift-lab-bob
+      MCPRIFT_INVALID_TOKEN: mcprift-lab-invalid
+      MCPRIFT_EXPIRED_TOKEN: mcprift-lab-expired
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.22"
+
+      - name: Install the locked project
+        run: uv sync --locked
+
+      - name: Run unit tests and lint
+        run: |
+          uv run python -m unittest discover -s tests -v
+          uv run ruff check .
+
+      - name: Run the secure authorization contract
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/mcprift
+          uv run python -m mcprift.lab > artifacts/lab.log 2>&1 &
+          lab_pid=$!
+          trap 'kill "$lab_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in {1..100}; do
+            if curl --silent --output /dev/null http://127.0.0.1:8080/mcp; then
+              ready=true
+              break
+            fi
+            sleep 0.1
+          done
+          test "$ready" = true
+          uv run mcprift init assessment.json --lab
+          uv run mcprift validate assessment.json
+          uv run mcprift run assessment.json \
+            --acknowledge-safe-actions \
+            --format sarif \
+            --evidence-dir artifacts/mcprift > artifacts/mcprift.sarif
+
+      - name: Upload clean contract evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcprift-evidence
+          path: artifacts/
+          if-no-files-found: error
+
+      - name: Verify a seeded tenant-isolation regression fails
+        run: |
+          set -euo pipefail
+          uv run python -m mcprift.lab --vulnerable cross-user-resource > /tmp/mcprift-vulnerable-lab.log 2>&1 &
+          lab_pid=$!
+          trap 'kill "$lab_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in {1..100}; do
+            if curl --silent --output /dev/null http://127.0.0.1:8080/mcp; then
+              ready=true
+              break
+            fi
+            sleep 0.1
+          done
+          test "$ready" = true
+          set +e
+          uv run mcprift run assessment.json \
+            --acknowledge-safe-actions \
+            --format sarif \
+            --evidence-dir artifacts/mcprift > artifacts/seeded-regression.sarif
+          status=$?
+          set -e
+          test "$status" -eq 1
+
+      - name: Upload seeded-regression SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: artifacts/seeded-regression.sarif

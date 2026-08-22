@@ -44,12 +44,18 @@ class Action:
     target: str
     arguments: dict[str, Any] | None = None
     known_safe: bool = False
+    safety_justification: str | None = None
 
     def __post_init__(self) -> None:
         if not self.target:
             raise ValueError("action target cannot be empty")
         if self.kind is ActionKind.TOOL_CALL and not self.known_safe:
             raise ValueError("tool action must be explicitly marked as known-safe")
+        if (
+            self.kind is not ActionKind.TOOL_CALL
+            and self.safety_justification is not None
+        ):
+            raise ValueError("only tool actions may have a safety justification")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -57,6 +63,11 @@ class Action:
             "target": self.target,
             "argument_names": sorted(self.arguments) if self.arguments else [],
             "known_safe": self.known_safe,
+            **(
+                {"safety_justification": self.safety_justification}
+                if self.safety_justification is not None
+                else {}
+            ),
         }
 
 
