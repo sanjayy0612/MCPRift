@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Mapping
+from dataclasses import replace
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
@@ -16,12 +17,16 @@ ANONYMOUS_TOOL = "anonymous-tool"
 CROSS_USER_RESOURCE = "cross-user-resource"
 EXPIRED_CREDENTIAL = "expired-credential"
 SESSION_IDENTITY_CROSSOVER = "session-identity-crossover"
+PROMPT_ACCESS = "prompt-access"
+CAPABILITY_VISIBILITY_LEAK = "capability-visibility-leak"
 VULNERABILITIES = frozenset(
     {
         ANONYMOUS_TOOL,
         CROSS_USER_RESOURCE,
         EXPIRED_CREDENTIAL,
         SESSION_IDENTITY_CROSSOVER,
+        PROMPT_ACCESS,
+        CAPABILITY_VISIBILITY_LEAK,
     }
 )
 
@@ -33,7 +38,7 @@ def create_lab(vulnerabilities: frozenset[str] = frozenset()) -> MCPServer:
 
     lab = MCPServer(
         "mcprift-security-lab",
-        version="0.3.0",
+        version="0.4.0",
         instructions="Disposable local authorization test fixture.",
     )
     established_actors: dict[str, str] = {}
@@ -78,10 +83,62 @@ def create_lab(vulnerabilities: frozenset[str] = frozenset()) -> MCPServer:
         return f"synthetic private content for {owner}"
 
     @lab.prompt(description="Create a harmless review request.")
-    def review_prompt(subject: str) -> str:
+    def review_prompt(subject: str, ctx: Context) -> str:
+        actor = actor_for_request(ctx.headers)
+        if actor is None and PROMPT_ACCESS not in vulnerabilities:
+            raise PermissionError("access denied")
         return f"Review the synthetic subject: {subject}"
 
+    _install_visibility_filters(lab, vulnerabilities)
+
     return lab
+
+
+def _install_visibility_filters(
+    lab: MCPServer, vulnerabilities: frozenset[str]
+) -> None:
+    """Make the disposable fixture's advertised private capabilities actor-aware."""
+    handlers = lab._lowlevel_server._request_handlers  # type: ignore[attr-defined]
+    for method, field in (
+        ("resources/templates/list", "resource_templates"),
+        ("prompts/list", "prompts"),
+    ):
+        entry = handlers[method]
+        original = entry.handler
+
+        async def filtered(
+            context: object, params: object, *, _original=original, _field=field
+        ):
+            result = await _original(context, params)
+            request = getattr(context, "request", None)
+            headers = getattr(request, "headers", {}) or {}
+            if headers.get("x-mcprift-unbound") == "true" or _visible_to_actor(
+                headers, vulnerabilities
+            ):
+                return result
+            items = [
+                item
+                for item in getattr(result, _field)
+                if item.name not in {"private_user_resource", "review_prompt"}
+            ]
+            return result.model_copy(update={_field: items})
+
+        handlers[method] = replace(entry, handler=filtered)
+
+
+def _visible_to_actor(
+    headers: Mapping[str, str], vulnerabilities: frozenset[str]
+) -> bool:
+    if "authorization" not in headers:
+        return (
+            PROMPT_ACCESS in vulnerabilities
+            or CAPABILITY_VISIBILITY_LEAK in vulnerabilities
+        )
+    return (
+        _verified_actor(headers, vulnerabilities) is not None
+        or PROMPT_ACCESS in vulnerabilities
+        or CAPABILITY_VISIBILITY_LEAK in vulnerabilities
+    )
 
 
 def _verified_actor(

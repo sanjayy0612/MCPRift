@@ -18,7 +18,9 @@ from mcprift.mutation import MutationObservation
 from mcprift.oauth_checks import OAuthCheckResult
 from mcprift.security import SecurityResult
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
+EVIDENCE_SCHEMA_VERSION = SCHEMA_VERSION
+SUPPORTED_SCHEMA_VERSIONS = {"1", "2"}
 MAX_EVIDENCE_BYTES = 2_000_000
 
 
@@ -30,6 +32,9 @@ class EvidenceRun:
     results: tuple[SecurityResult, ...] = ()
     mutations: tuple[MutationObservation, ...] = ()
     oauth_checks: tuple[OAuthCheckResult, ...] = ()
+    contract_results: tuple[dict[str, Any], ...] = ()
+    safe_action_acknowledged: bool = False
+    safe_action_justifications: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -44,6 +49,11 @@ class EvidenceRun:
             "results": [result.to_dict() for result in self.results],
             "mutations": [mutation.to_dict() for mutation in self.mutations],
             "oauth_checks": [check.to_dict() for check in self.oauth_checks],
+            "contract_results": list(self.contract_results),
+            "safety": {
+                "safe_action_acknowledged": self.safe_action_acknowledged,
+                "safe_action_justifications": list(self.safe_action_justifications),
+            },
         }
 
 
@@ -53,6 +63,9 @@ def create_evidence(
     results: tuple[SecurityResult, ...] = (),
     mutations: tuple[MutationObservation, ...] = (),
     oauth_checks: tuple[OAuthCheckResult, ...] = (),
+    contract_results: tuple[dict[str, Any], ...] = (),
+    safe_action_acknowledged: bool = False,
+    safe_action_justifications: tuple[str, ...] = (),
 ) -> EvidenceRun:
     """Create evidence without retaining the target URL or credentials."""
     url = validate_controlled_url(raw_url)
@@ -63,6 +76,9 @@ def create_evidence(
         results=results,
         mutations=mutations,
         oauth_checks=oauth_checks,
+        contract_results=contract_results,
+        safe_action_acknowledged=safe_action_acknowledged,
+        safe_action_justifications=safe_action_justifications,
     )
 
 
@@ -100,10 +116,14 @@ def read_evidence(path: str | Path) -> dict[str, Any]:
         raise ValueError("invalid evidence file") from error
     if (
         not isinstance(value, dict)
-        or value.get("schema_version") != SCHEMA_VERSION
-        or not isinstance(value.get("results"), list)
-        or not isinstance(value.get("mutations"), list)
+        or value.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS
+    ):
+        raise ValueError("unsupported evidence schema")
+    if (
+        not isinstance(value.get("results", []), list)
+        or not isinstance(value.get("mutations", []), list)
         or not isinstance(value.get("oauth_checks", []), list)
+        or not isinstance(value.get("contract_results", []), list)
     ):
         raise ValueError("unsupported evidence schema")
     return value
