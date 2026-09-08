@@ -91,7 +91,11 @@ def sarif_report(evidence: dict[str, Any]) -> str:
         findings.append(
             {
                 "ruleId": case_id,
-                "level": "error" if item["status"] == "fail" else "warning",
+                "level": (
+                    "warning"
+                    if item["status"] in {"error", "rate-limited"}
+                    else "error"
+                ),
                 "message": {
                     "text": (
                         f"{case['title']}: observed {item['observation']['outcome']}"
@@ -112,11 +116,13 @@ def sarif_report(evidence: dict[str, Any]) -> str:
         }
         if check["passed"]:
             continue
+        rate_limited = "HTTP 429" in check["observed"]
         findings.append(
             {
                 "ruleId": check_id,
-                "level": "error",
+                "level": "warning" if rate_limited else "error",
                 "message": {"text": f"{check['title']}: observed {check['observed']}"},
+                "properties": {"rate_limited": rate_limited},
             }
         )
     document = {
@@ -202,4 +208,5 @@ def _summary(counts: Counter[str], *, color: bool) -> str:
     passed = green(f"{counts['pass']} passed", enabled=color)
     failed = yellow(f"{counts['fail']} failed", enabled=color)
     errors = yellow(f"{counts['error']} errors", enabled=color)
-    return f"summary: {passed}, {failed}, {errors}"
+    rate_limited = yellow(f"{counts['rate-limited']} rate-limited", enabled=color)
+    return f"summary: {passed}, {failed}, {errors}, {rate_limited}"

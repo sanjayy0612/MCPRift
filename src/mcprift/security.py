@@ -81,6 +81,7 @@ class SecurityResult:
 def evaluate(case: SecurityCase, observation: Observation) -> SecurityResult:
     """Evaluate only the observable authorization property."""
     if observation.outcome in {
+        Outcome.RATE_LIMITED,
         Outcome.TOOL_ERROR,
         Outcome.PROTOCOL_ERROR,
         Outcome.TRANSPORT_ERROR,

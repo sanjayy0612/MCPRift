@@ -135,4 +135,5 @@ class OperationTests(unittest.TestCase):
         self.assertEqual(
             asyncio.run(observe(403)).outcome, Outcome.AUTHORIZATION_DENIED
         )
+        self.assertEqual(asyncio.run(observe(429)).outcome, Outcome.RATE_LIMITED)
         self.assertEqual(asyncio.run(observe(None)).outcome, Outcome.TRANSPORT_ERROR)

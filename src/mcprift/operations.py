@@ -30,6 +30,7 @@ class Outcome(StrEnum):
     ALLOWED = "allowed"
     AUTHENTICATION_DENIED = "authentication-denied"
     AUTHORIZATION_DENIED = "authorization-denied"
+    RATE_LIMITED = "rate-limited"
     TOOL_ERROR = "tool-error"
     PROTOCOL_ERROR = "protocol-error"
     TRANSPORT_ERROR = "transport-error"
@@ -269,6 +270,8 @@ def _exception_outcome(error: BaseException, http_status: int | None) -> Outcome
         return Outcome.AUTHENTICATION_DENIED
     if http_status == 403:
         return Outcome.AUTHORIZATION_DENIED
+    if http_status == 429:
+        return Outcome.RATE_LIMITED
     if isinstance(
         error,
         (

@@ -3,11 +3,40 @@ from __future__ import annotations
 import json
 import unittest
 
+from mcprift.actors import Actor, ActorKind
 from mcprift.cli import _contract_exit_code
+from mcprift.contract_runner import _access_result
+from mcprift.operations import Action, ActionKind, Observation, Outcome
 from mcprift.reporting import sarif_report, terminal_report
+from mcprift.security import (
+    ExpectedProperty,
+    ResultStatus,
+    SecurityCase,
+    SecurityResult,
+)
 
 
 class ContractReportingTests(unittest.TestCase):
+    def test_expected_denial_remains_a_passing_contract_verdict(self) -> None:
+        actor = Actor("alice", ActorKind.AUTHENTICATED, "test-token")
+        case = SecurityCase(
+            "MCPRIFT-BOUNDARY-002",
+            "Alice cannot read Bob's resource",
+            actor,
+            Action(ActionKind.RESOURCE_READ, "lab://users/bob"),
+            ExpectedProperty.DENIED,
+        )
+        result = SecurityResult(
+            case,
+            Observation("alice", "authenticated", Outcome.AUTHORIZATION_DENIED, "test"),
+            ResultStatus.PASS,
+        )
+
+        rendered = _access_result(result, {})
+
+        self.assertEqual(rendered["observed"], "denied")
+        self.assertEqual(rendered["verdict"], "pass")
+
     def test_contract_failure_becomes_a_sarif_error(self) -> None:
         evidence = {
             "tool": {"version": "0.4.0"},
@@ -87,3 +116,26 @@ class ContractReportingTests(unittest.TestCase):
         self.assertNotIn("\x1b", report)
         self.assertIn("1 errors", report)
         self.assertEqual(_contract_exit_code((result,)), 2)
+
+    def test_oauth_http_429_is_marked_rate_limited_in_sarif(self) -> None:
+        sarif = json.loads(
+            sarif_report(
+                {
+                    "tool": {"version": "0.5.0"},
+                    "results": [],
+                    "oauth_checks": [
+                        {
+                            "check_id": "MCPRIFT-OAUTH-010",
+                            "title": "authorization rejects a resource indicator",
+                            "passed": False,
+                            "observed": "authorize HTTP 429",
+                            "expected": "redirect with invalid_target",
+                        }
+                    ],
+                }
+            )
+        )
+        finding = sarif["runs"][0]["results"][0]
+
+        self.assertEqual(finding["level"], "warning")
+        self.assertTrue(finding["properties"]["rate_limited"])

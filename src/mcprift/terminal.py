@@ -26,7 +26,7 @@ def yellow(text: str, *, enabled: bool) -> str:
 
 def verdict(text: str, status: str, *, enabled: bool) -> str:
     """Render passing outcomes green and attention-required outcomes yellow."""
-    if status == "pass":
+    if status in {"pass"}:
         return green(text, enabled=enabled)
     return yellow(text, enabled=enabled)
 

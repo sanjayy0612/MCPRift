@@ -58,21 +58,35 @@ async def run_contract(
     for case in plan.protocol:
         try:
             observation = await run_mutation(plan.target, case.mutation)
-            rejected = (
-                observation.http_status >= 400 or observation.json_rpc_error
-            ) and not observation.session_established
-            observed = "rejected" if rejected else "accepted"
-            verdict = "pass" if observed == case.expected else "fail"
-            probe = {
-                "kind": "protocol-mutation",
-                "mutation": case.mutation.value,
-                "http_status": observation.http_status,
-                "content_type": observation.content_type,
-                "response_bytes": observation.response_bytes,
-                "response_sha256": observation.response_sha256,
-                "json_rpc_error": observation.json_rpc_error,
-                "session_established": observation.session_established,
-            }
+            if observation.http_status == 429:
+                observed, verdict = "rate-limited", "rate-limited"
+                probe = {
+                    "kind": "protocol-mutation",
+                    "mutation": case.mutation.value,
+                    "http_status": observation.http_status,
+                    "content_type": observation.content_type,
+                    "response_bytes": observation.response_bytes,
+                    "response_sha256": observation.response_sha256,
+                    "json_rpc_error": observation.json_rpc_error,
+                    "session_established": observation.session_established,
+                    "rate_limited": True,
+                }
+            else:
+                rejected = (
+                    observation.http_status >= 400 or observation.json_rpc_error
+                ) and not observation.session_established
+                observed = "rejected" if rejected else "accepted"
+                verdict = "pass" if observed == case.expected else "fail"
+                probe = {
+                    "kind": "protocol-mutation",
+                    "mutation": case.mutation.value,
+                    "http_status": observation.http_status,
+                    "content_type": observation.content_type,
+                    "response_bytes": observation.response_bytes,
+                    "response_sha256": observation.response_sha256,
+                    "json_rpc_error": observation.json_rpc_error,
+                    "session_established": observation.session_established,
+                }
         except Exception:
             observed, verdict = "error", "error"
             probe = {"kind": "protocol-mutation", "mutation": case.mutation.value}
@@ -102,6 +116,8 @@ def _access_result(result: Any, source: dict[str, str | int]) -> dict[str, Any]:
         Outcome.AUTHORIZATION_DENIED,
     }:
         observed = "denied"
+    elif observation.outcome is Outcome.RATE_LIMITED:
+        observed = "rate-limited"
     else:
         observed = "error"
     return _base_result(
@@ -112,7 +128,11 @@ def _access_result(result: Any, source: dict[str, str | int]) -> dict[str, Any]:
         probe={"kind": case.action.kind.value},
         expected=case.expected.value,
         observed=observed,
-        verdict=result.status.value,
+        verdict=(
+            "rate-limited"
+            if observation.outcome is Outcome.RATE_LIMITED
+            else result.status.value
+        ),
         source=source,
         session={
             "policy": case.session_policy.value,

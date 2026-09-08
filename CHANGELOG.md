@@ -5,6 +5,20 @@ All notable changes to MCPRift are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Rate-limit detection: HTTP `429 Too Many Requests` responses are now mapped to
+  a distinct `RATE_LIMITED` outcome in `Outcome` and are never silently absorbed
+  into `TRANSPORT_ERROR`.
+- `rate-limited` is a first-class observed value in contract results (`access`,
+  `session`, and `protocol` families).
+- Terminal summary now includes a `N rate-limited` count alongside passed,
+  failed, and error counts.
+- SARIF output maps rate-limited findings to `warning` level (not `error`),
+  distinguishing infrastructure throttling from security-policy failures.
+
 ## [0.5.0] - 2026-08-24
 
 ### Added
